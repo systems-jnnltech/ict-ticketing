@@ -18,6 +18,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const [isEditingRecommendation, setIsEditingRecommendation] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
+  const [showAssetModal, setShowAssetModal] = useState(false);
   const [referralData, setReferralData] = useState({
     reason: 'Hardware repair requires specialized technician',
   });
@@ -48,7 +49,8 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
   const requester = users.find(u => u.id === ticket.requesterId);
   const assignee = users.find(u => u.id === ticket.assignedToId);
-  const asset = assets.find(a => a.id === ticket.assetId);
+  const asset = assets.find(a => a.id === ticket.assetId || a.assetCode === ticket.assetId);
+  const assetOffice = offices.find(o => o.id === asset?.officeId) || department;
   const category = categories.find(c => c.id === ticket.categoryId);
   const ictStaff = users.filter(u => u.role === 'ICT Support');
 
@@ -394,7 +396,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
             <div className="h-px bg-border w-full"></div>
 
-                        {/* Category & Asset */}
+            {/* Category & Asset */}
             <div className="flex items-start space-x-4">
                 <div className="w-12 h-12 rounded-xl bg-bg border border-border flex items-center justify-center shrink-0 shadow-sm">
                     <Monitor className="w-5 h-5 text-ink-muted" />
@@ -408,9 +410,15 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                         {(asset.assetCode || asset.propertyNumber) && (
                           <div>
                             <div className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Asset Code</div>
-                            <div className="text-[13px] font-bold font-mono text-ink mt-0.5 tracking-wide">
-                              {asset.assetCode || asset.propertyNumber}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowAssetModal(true)}
+                              className="group mt-0.5 flex items-center gap-1.5 text-[13px] font-bold font-mono text-accent hover:underline focus:outline-none transition-colors cursor-pointer text-left"
+                              title="Click to view asset details"
+                            >
+                              <span>{asset.assetCode || asset.propertyNumber}</span>
+                              <ExternalLink className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </button>
                           </div>
                         )}
                       </div>
@@ -841,6 +849,170 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
             Toast.fire({ icon: 'success', title: 'Technician details saved' });
           }}
         />
+      )}
+
+      {/* Asset Info Modal */}
+      {showAssetModal && asset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-surface border border-border w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-5 border-b border-border flex justify-between items-center bg-bg/50 shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+                  <Monitor className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[14px] text-ink leading-tight">
+                    {asset.equipmentType} - {asset.brand} {asset.model}
+                  </h3>
+                  <p className="text-[11px] font-mono text-accent mt-0.5">
+                    {asset.assetCode || asset.propertyNumber}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowAssetModal(false)} 
+                className="text-ink-muted hover:text-ink hover:bg-border p-2 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 text-sm">
+              {/* Badges */}
+              <div className="flex flex-wrap gap-2">
+                <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
+                  asset.operationalStatus === 'Operational' 
+                    ? 'bg-green-500/10 text-green-500 border-green-500/20' 
+                    : 'bg-red-500/10 text-red-500 border-red-500/20'
+                }`}>
+                  {asset.operationalStatus || 'Operational'}
+                </span>
+                <span className="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-bg border border-border text-ink-muted">
+                  Condition: {asset.condition || 'Good'}
+                </span>
+                {assetOffice && (
+                  <span className="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-accent/10 text-accent border border-accent/20">
+                    {assetOffice.name}
+                  </span>
+                )}
+              </div>
+
+              {/* General & Assignment Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-bg/50 p-4 rounded-xl border border-border">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Assigned To</span>
+                  <span className="font-semibold text-ink">{asset.assignedTo || 'Unassigned'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Office / Department</span>
+                  <span className="font-semibold text-ink">{assetOffice?.name || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Exact Location</span>
+                  <span className="font-semibold text-ink">{asset.exactLocation || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Serial Number</span>
+                  <span className="font-mono font-semibold text-ink">{asset.serialNumber || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Property Number</span>
+                  <span className="font-mono font-semibold text-ink">{asset.propertyNumber || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Inventory Number</span>
+                  <span className="font-mono font-semibold text-ink">{asset.inventoryNumber || 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* Technical Specifications (if available) */}
+              {(asset.hostname || asset.processor || asset.memory || asset.diskStorage || asset.operatingSystem || asset.microsoftOffice) && (
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-ink">Technical Specifications</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-bg/50 p-4 rounded-xl border border-border">
+                    {asset.hostname && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Hostname</span>
+                        <span className="font-mono text-ink">{asset.hostname}</span>
+                      </div>
+                    )}
+                    {asset.processor && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Processor</span>
+                        <span className="text-ink">{asset.processor}</span>
+                      </div>
+                    )}
+                    {asset.memory && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Memory (RAM)</span>
+                        <span className="text-ink">{asset.memory}</span>
+                      </div>
+                    )}
+                    {asset.diskStorage && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Disk Storage</span>
+                        <span className="text-ink">{asset.diskStorage}</span>
+                      </div>
+                    )}
+                    {asset.operatingSystem && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Operating System</span>
+                        <span className="text-ink">{asset.operatingSystem}</span>
+                      </div>
+                    )}
+                    {asset.microsoftOffice && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Microsoft Office</span>
+                        <span className="text-ink">{asset.microsoftOffice}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Acquisition & Remarks */}
+              {(asset.acquisitionCost || asset.dateAcquired || asset.remarks) && (
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-ink">Acquisition & Details</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-bg/50 p-4 rounded-xl border border-border">
+                    {asset.acquisitionCost && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Acquisition Cost</span>
+                        <span className="text-ink">{asset.acquisitionCost}</span>
+                      </div>
+                    )}
+                    {asset.dateAcquired && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Date Acquired</span>
+                        <span className="text-ink">{asset.dateAcquired}</span>
+                      </div>
+                    )}
+                    {asset.remarks && (
+                      <div className="sm:col-span-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Remarks</span>
+                        <span className="text-ink text-xs">{asset.remarks}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-border bg-bg/50 flex justify-end shrink-0">
+              <button 
+                type="button" 
+                onClick={() => setShowAssetModal(false)} 
+                className="px-5 py-2.5 bg-accent text-white text-[11px] font-bold uppercase tracking-widest rounded-xl hover:opacity-90 shadow-sm transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
