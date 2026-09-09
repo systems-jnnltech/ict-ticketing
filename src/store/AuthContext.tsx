@@ -65,89 +65,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (currentUser: SupabaseUser) => {
+    const fetchProfile = async (currentUser: SupabaseUser) => {
     try {
+      const userEmail = currentUser.email?.toLowerCase() || '';
+      const isMalungonDomain = userEmail.endsWith('@malungon.gov.ph');
+      const isGmail = userEmail.endsWith('@gmail.com');
+
+      // 1. Fetch existing profile
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', currentUser.id)
         .single();
-      
-      if (error) {
-        if (error.code === 'PGRST116') {
-           // Check if there is a pending invitation
-           const { data: invitation, error: invError } = await supabase
-             .from('user_invitations')
-             .select('*')
-             .eq('email', currentUser.email)
-             .single();
 
-           let assignedRole = 'employee';
-           let assignedDept = null;
-           let isInvited = false;
-
-           if (!invError && invitation) {
-              assignedRole = invitation.role;
-              assignedDept = invitation.department_id;
-              isInvited = true;
-           }
-
-           // Enforce domain restriction for auto-creation, IF NOT INVITED
-           if (!isInvited && currentUser.app_metadata?.provider === 'google') {
-             if (!currentUser.email?.endsWith('@malungon.gov.ph')) {
-               toast.error('Only @malungon.gov.ph accounts are allowed unless pre-assigned.');
-               await supabase.auth.signOut();
-               setUser(null);
-               setSession(null);
-               setProfile(null);
-               setLoading(false);
-               return;
-             } else {
-               // Attempt to auto-link department if their email matches an official office email
-               const { data: deptMatch } = await supabase
-                 .from('departments')
-                 .select('id')
-                 .eq('email', currentUser.email)
-                 .single();
-                 
-               if (deptMatch) {
-                 assignedDept = deptMatch.id;
-               }
-             }
-           }
-
-           if (currentUser.email === 'systems@malungon.gov.ph') {
-              assignedRole = 'system_admin';
-           }
-
-           // Create fallback profile
-           const { data: newProfile, error: insertError } = await supabase
-             .from('profiles')
-             .insert({
-                id: currentUser.id,
-                email: currentUser.email || '',
-                full_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'New User',
-                role: assignedRole,
-                department_id: assignedDept,
-                status: 'active'
-             })
-             .select()
-             .single();
-             
-           if (insertError) {
-              console.error('Failed to create fallback profile:', insertError);
-              toast.error('Your profile was not found and could not be created automatically. Make sure the database schema is fully deployed.');
-           } else {
-              setProfile(newProfile);
-              if (isInvited) {
-                 await supabase.from('user_invitations').delete().eq('id', invitation.id);
-              }
-           }
-        } else {
-          throw error;
+      // CASE A: User already has a profile
+      if (data) {
+        // RULE: Office / Department employees CANNOT use personal Gmail accounts
+        if (data.role === 'employee' && !isMalungonDomain) {
+          toast.error('Office accounts must use an official @malungon.gov.ph email. Personal Gmail accounts are not permitted.');
+          await supabase.auth.signOut();
+          setUser(null);
+          setSession(null);
+          setProfile(null);
+          setLoading(false);
+          return;
         }
-      } else {
-        if (currentUser.email === 'systems@malungon.gov.ph' && data.role !== 'system_admin') {
+
+        // Ensure primary system admin role
+        if (userEmail === 'systems@malungon.gov.ph' && data.role !== 'system_admin') {
           const { data: updatedData } = await supabase
             .from('profiles')
             .update({ role: 'system_admin' })
@@ -157,6 +102,87 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(updatedData || { ...data, role: 'system_admin' });
         } else {
           setProfile(data);
+        }
+        return;
+      }
+
+      // CASE B: First-time sign in (no profile yet)
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Check if pre-assigned by Admin in user_invitations
+          const { data: invitation } = await supabase
+            .from('user_invitations')
+            .select('*')
+            .eq('email', userEmail)
+            .single();
+
+          let assignedRole: Role = invitation ? invitation.role : 'employee';
+          let assignedDept = invitation ? invitation.department_id : null;
+          const isInvited = Boolean(invitation);
+
+          if (userEmail === 'systems@malungon.gov.ph') {
+            assignedRole = 'system_admin';
+          }
+
+          // Auto-link department if email matches an official office email
+          if (!assignedDept && isMalungonDomain) {
+            const { data: deptMatch } = await supabase
+              .from('departments')
+              .select('id')
+              .eq('email', userEmail)
+              .single();
+            if (deptMatch) {
+              assignedDept = deptMatch.id;
+            }
+          }
+
+          // RULE 1: Office / Employee accounts MUST use @malungon.gov.ph
+          if (assignedRole === 'employee' && !isMalungonDomain) {
+            toast.error('Office accounts must use an official @malungon.gov.ph email. Personal Gmail accounts are not permitted.');
+            await supabase.auth.signOut();
+            setUser(null);
+            setSession(null);
+            setProfile(null);
+            setLoading(false);
+            return;
+          }
+
+          // RULE 2: Gmail is ONLY permitted if pre-assigned as ICT Support
+          if (isGmail && assignedRole !== 'ict_support' && assignedRole !== 'system_admin') {
+            toast.error('This Gmail account is not recognized as authorized ICT Support. Please contact the administrator.');
+            await supabase.auth.signOut();
+            setUser(null);
+            setSession(null);
+            setProfile(null);
+            setLoading(false);
+            return;
+          }
+
+          // Create the profile
+          const { data: newProfile, error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: currentUser.id,
+              email: userEmail,
+              full_name: currentUser.user_metadata?.full_name || userEmail.split('@')[0] || 'New User',
+              role: assignedRole,
+              department_id: assignedDept,
+              status: 'active'
+            })
+            .select()
+            .single();
+
+          if (insertError) {
+            console.error('Failed to create fallback profile:', insertError);
+            toast.error('Your profile was not found and could not be created automatically. Make sure the database schema is fully deployed.');
+          } else {
+            setProfile(newProfile);
+            if (isInvited && invitation) {
+              await supabase.from('user_invitations').delete().eq('id', invitation.id);
+            }
+          }
+        } else {
+          throw error;
         }
       }
     } catch (error: any) {
