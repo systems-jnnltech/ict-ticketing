@@ -400,20 +400,20 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                 </div>
                 <div>
                     <div className="text-[10px] font-bold text-ink-muted mb-1.5 uppercase tracking-widest">Category & Asset</div>
-                    <div className="text-[14px] font-bold text-ink leading-tight">{category?.name || 'General'}</div>
-                    {asset && (
-                          <div className="text-[12px] font-medium text-ink-muted mt-1">{asset.equipmentType} - {asset.brand} {asset.model}</div>
-                    )}
-                </div>
-            </div>
-            
-            <div className="h-px bg-border w-full"></div>
-            
-            <div className="flex items-start space-x-4">
-                <div className="w-12 h-12 rounded-xl bg-bg border border-border flex items-center justify-center shrink-0 shadow-sm">
-                    <Clock className="w-5 h-5 text-ink-muted" />
-                </div>
-                <div>
+<div className="text-[14px] font-bold text-ink leading-tight">{category?.name || 'General'}</div>
+{asset && (
+  <div className="mt-1 space-y-2">
+    <div className="text-[12px] font-medium text-ink-muted">{asset.equipmentType} - {asset.brand} {asset.model}</div>
+    {(asset.assetCode || asset.propertyNumber) && (
+      <div>
+        <div className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Asset Code</div>
+        <div className="text-[13px] font-bold font-mono text-ink mt-0.5 tracking-wide">
+          {asset.assetCode || asset.propertyNumber}
+        </div>
+      </div>
+    )}
+  </div>
+)}
                     <div className="text-[10px] font-bold text-ink-muted mb-1.5 uppercase tracking-widest">Timestamps</div>
                     <div className="text-[12px] font-medium text-ink mt-1">Submitted: {format(new Date(ticket.createdAt), 'MMM d, h:mm a')}</div>
                     <div className="text-[12px] font-medium text-ink-muted mt-1">Updated: {format(new Date(ticket.updatedAt), 'MMM d, h:mm a')}</div>
