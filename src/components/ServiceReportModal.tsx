@@ -76,7 +76,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   const [actionTaken, setActionTaken] = useState('');
   const [finalStatus, setFinalStatus] = useState<FinalServiceStatus>('Resolved');
   const [recommendation, setRecommendation] = useState('');
-  const [preparedByName, setPreparedByName] = useState('');
   const [ictHeadName, setIctHeadName] = useState('Engr. Kenneth Jones D. Alforque');
   const [officeHeadName, setOfficeHeadName] = useState('');
   const [reportStatus, setReportStatus] = useState<ServiceReportStatus>('Generated');
@@ -93,7 +92,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setActionTaken(existingReport.actionTaken);
       setFinalStatus(existingReport.finalStatus);
       setRecommendation(existingReport.recommendation);
-      setPreparedByName(existingReport.preparedByName);
       setIctHeadName(existingReport.ictHeadName || 'Engr. Kenneth Jones D. Alforque');
       setOfficeHeadName(existingReport.officeHeadName || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
       setReportStatus(existingReport.reportStatus);
@@ -121,8 +119,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setFinalStatus(ticket.status === 'CLOSED' ? 'Resolved' : 'Repaired');
       setRecommendation(ticket.ictRecommendation || RECOMMENDATION_PRESETS[0]);
       
-      const techUser = assignee || currentUser;
-      setPreparedByName(techUser?.name || 'ICT Personnel');
       setIctHeadName('Engr. Kenneth Jones D. Alforque');
       setOfficeHeadName(department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative');
       setReportStatus('Generated');
@@ -158,14 +154,14 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           actionTaken,
           finalStatus,
           recommendation,
-          preparedByName,
+          preparedByName: currentUser?.name || 'ICT Support',
           ictHeadName,
           officeHeadName,
           reportStatus,
         });
         toast.success(`Service Report ${reportNumber} updated successfully.`);
       } else {
-        const created = await createServiceReport({
+        await createServiceReport({
           reportNumber: reportNumber || getNextReportNumber(),
           ticketId: ticket.id,
           reportDate: reportDate || new Date().toISOString().split('T')[0],
@@ -174,7 +170,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           actionTaken,
           finalStatus,
           recommendation,
-          preparedByName: preparedByName || currentUser?.name || 'ICT Technical Staff',
+          preparedByName: currentUser?.name || 'ICT Support',
           preparedById: currentUser?.id,
           ictHeadName: ictHeadName || 'Engr. Kenneth Jones D. Alforque',
           officeHeadName: officeHeadName || 'Head of Office / Authorized Representative',
@@ -189,35 +185,148 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     }
   };
 
+  // Robust, pristine isolated-iframe printing that never shows blank in Chrome/Edge
   const handlePrint = async () => {
     if (existingReport) {
       await markReportPrinted(existingReport.id);
     }
-    window.print();
+
+    const printElement = document.getElementById('official-tsr-printout');
+    if (!printElement) {
+      window.print();
+      return;
+    }
+
+    // Create an invisible isolated iframe
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('style', 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;');
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+      window.print();
+      return;
+    }
+
+    // Collect all loaded CSS rules to ensure exact styling
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map(node => node.outerHTML)
+      .join('\n');
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>ICT Technical Service Report - ${reportNumber || ticket.ticketNumber}</title>
+          ${styles}
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 10mm 12mm;
+            }
+            *, *:before, *:after {
+              box-sizing: border-box !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              width: 100% !important;
+              height: auto !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
+            }
+            #official-tsr-printout {
+              display: block !important;
+              visibility: visible !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+              box-shadow: none !important;
+              background-color: #ffffff !important;
+              color: #000000 !important;
+            }
+            table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+            }
+            th, td {
+              border: 1px solid #000000 !important;
+              padding: 4px 6px !important;
+              font-size: 11px !important;
+            }
+            .bg-gray-100 {
+              background-color: #f3f4f6 !important;
+            }
+            .bg-gray-50 {
+              background-color: #f9fafb !important;
+            }
+            .bg-black {
+              background-color: #000000 !important;
+              color: #ffffff !important;
+            }
+            .border-black {
+              border-color: #000000 !important;
+            }
+          </style>
+        </head>
+        <body class="bg-white text-black">
+          ${printElement.outerHTML}
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    // Allow browser time to parse DOM, then invoke print
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      }, 1000);
+    }, 350);
   };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 print:p-0 print:bg-white print:static">
       
-      {/* Print Specific CSS Rules */}
+      {/* Fallback Print Specific CSS Rules */}
       <style>{`
         @media print {
-          body * {
-            visibility: hidden !important;
+          html, body {
+            height: auto !important;
+            overflow: visible !important;
+            background: #ffffff !important;
           }
-          #official-tsr-printout, #official-tsr-printout * {
-            visibility: visible !important;
+          header, aside, nav, form, .no-print {
+            display: none !important;
+          }
+          .fixed.inset-0 {
+            position: static !important;
+            height: auto !important;
+            overflow: visible !important;
+            background: transparent !important;
+            padding: 0 !important;
           }
           #official-tsr-printout {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
             width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
-            background: white !important;
-            color: black !important;
-            font-size: 11pt !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: #000 !important;
+            background: #fff !important;
           }
           @page {
             size: A4 portrait;
@@ -226,7 +335,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
         }
       `}</style>
 
-      {/* Main Modal Card (hidden in browser print) */}
+      {/* Main Modal Card */}
       <div className="bg-surface border border-border w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:w-full print:rounded-none">
         
         {/* Modal Header */}
@@ -281,7 +390,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             <button
               onClick={handlePrint}
               type="button"
-              className="px-4 py-2 bg-ink text-surface text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm hover:opacity-90 transition-all flex items-center gap-1.5 active:scale-95"
+              className="px-4 py-2 bg-ink text-surface text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm hover:opacity-90 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
               title="Print official document or save as PDF"
             >
               <Printer className="w-4 h-4" />
@@ -290,7 +399,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
 
             <button
               onClick={onClose}
-              className="p-2 text-ink-muted hover:text-ink hover:bg-bg rounded-xl transition-all"
+              className="p-2 text-ink-muted hover:text-ink hover:bg-bg rounded-xl transition-all cursor-pointer"
               title="Close modal"
             >
               <X className="w-5 h-5" />
@@ -483,24 +592,11 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 />
               </div>
 
-              {/* Signatories Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-border">
+              {/* Signatories Grid (Symmetrically aligned 2 columns) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
-                    Prepared By (ICT Technician)
-                  </label>
-                  <input
-                    type="text"
-                    value={preparedByName}
-                    onChange={e => setPreparedByName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-xs font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
-                    Reviewed / Approved By (ICT Head)
+                    Reviewed / Approved By (Information System Analyst)
                   </label>
                   <input
                     type="text"
@@ -513,7 +609,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
 
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
-                    Received / Noted By (Office Head)
+                    Received / Noted By (Head of Office / Custodian)
                   </label>
                   <input
                     type="text"
@@ -546,14 +642,14 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                   <button
                     type="button"
                     onClick={() => setActiveTab('preview')}
-                    className="px-4 py-2.5 bg-bg border border-border text-ink rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-surface transition-all"
+                    className="px-4 py-2.5 bg-bg border border-border text-ink rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-surface transition-all cursor-pointer"
                   >
                     Preview Printout
                   </button>
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="px-6 py-2.5 bg-accent text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-2 active:scale-95"
+                    className="px-6 py-2.5 bg-accent text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-2 active:scale-95 cursor-pointer"
                   >
                     <Save className="w-4 h-4" />
                     <span>{isSaving ? 'Saving...' : (existingReport ? 'Update Report' : 'Save & Generate')}</span>
@@ -717,36 +813,26 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </div>
             </div>
 
-            {/* SECTION F: CERTIFICATION & SIGNATORIES */}
+            {/* SECTION F: CERTIFICATION & SIGNATORIES (Aligned 2 columns) */}
             <div className="mt-8 pt-2">
-              <p className="text-[10px] font-sans italic text-center mb-6 text-gray-800">
+              <p className="text-[10px] font-sans italic text-center mb-8 text-gray-800">
                 I hereby certify that the technical diagnosis, assessment, and repair actions detailed in this document were officially performed in accordance with standard LGU ICT maintenance procedures.
               </p>
 
-              <div className="grid grid-cols-3 gap-6 text-center font-sans">
-                {/* Prepared By */}
-                <div className="flex flex-col justify-end">
-                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-8">Prepared by:</div>
-                  <div className="border-b border-black font-bold uppercase text-xs pb-0.5">
-                    {preparedByName || 'ICT Technical Staff'}
-                  </div>
-                  <div className="text-[10px] text-gray-700 mt-1">ICT Technical Personnel</div>
-                  <div className="text-[9px] text-gray-500 mt-0.5">Date: ____________________</div>
-                </div>
-
+              <div className="grid grid-cols-2 gap-12 sm:gap-20 max-w-2xl mx-auto text-center font-sans">
                 {/* Reviewed & Approved By */}
-                <div className="flex flex-col justify-end">
-                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-8">Reviewed & Approved by:</div>
+                <div className="flex flex-col justify-end text-center">
+                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-10">Reviewed & Approved by:</div>
                   <div className="border-b border-black font-black uppercase text-xs pb-0.5">
                     {ictHeadName || 'Engr. Kenneth Jones D. Alforque'}
                   </div>
-                  <div className="text-[10px] font-bold text-gray-800 mt-1">ICT Head</div>
+                  <div className="text-[10px] font-bold text-gray-800 mt-1">Information System Analyst</div>
                   <div className="text-[9px] text-gray-500 mt-0.5">Date: ____________________</div>
                 </div>
 
                 {/* Received & Noted By */}
-                <div className="flex flex-col justify-end">
-                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-8">Received & Noted by:</div>
+                <div className="flex flex-col justify-end text-center">
+                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-10">Received & Noted by:</div>
                   <div className="border-b border-black font-bold uppercase text-xs pb-0.5">
                     {officeHeadName || 'Authorized Office Representative'}
                   </div>

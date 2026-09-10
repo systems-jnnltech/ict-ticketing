@@ -217,7 +217,7 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
                   <th className="py-4 px-6">Report Date</th>
                   <th className="py-4 px-6">Final Status</th>
                   <th className="py-4 px-6">Workflow</th>
-                  <th className="py-4 px-6">Prepared By</th>
+                  <th className="py-4 px-6">Reviewed By</th>
                   <th className="py-4 px-6 text-right">Actions</th>
                 </tr>
               </thead>
@@ -304,9 +304,10 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
                         </span>
                       </td>
 
-                      {/* Prepared By */}
+                      {/* Reviewed By */}
                       <td className="py-4 px-6 whitespace-nowrap text-ink">
-                        {report.preparedByName}
+                        <div className="font-semibold">{report.ictHeadName || 'Engr. Kenneth Jones D. Alforque'}</div>
+                        <div className="text-[10px] text-ink-muted">Information System Analyst</div>
                       </td>
 
                       {/* Actions */}
