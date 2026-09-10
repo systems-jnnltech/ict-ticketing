@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Ticket, Asset, Office, ServiceReport, mockCategories, mockTickets, mockAssets, mockOffices, mockUsers, mockServiceReports } from './mockData';
+import { User, Ticket, Asset, Office, ServiceReport, AssetHistory, mockCategories, mockTickets, mockAssets, mockOffices, mockUsers, mockServiceReports, mockAssetHistory } from './mockData';
 import { useAuth } from './AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { mapAssetFromDB, mapAssetToDB, mapTicketFromDB, mapTicketToDB, mapUserFromDB, mapOfficeFromDB, mapServiceReportFromDB, mapServiceReportToDB, sanitizeDepartmentId, findOfficeForAsset } from '../lib/mappers';
@@ -18,6 +18,7 @@ interface AppContextType {
   users: User[];
   updateUserRole: (userId: string, role: string, departmentId: string | null) => Promise<void>;
   assets: Asset[];
+  assetHistories: AssetHistory[];
   createNewAsset: (asset: any) => void;
   updateExistingAsset: (id: string, updates: any) => void;
   offices: Office[];
@@ -49,6 +50,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return isSupabaseConfigured ? [] : mockServiceReports;
+  });
+  const [assetHistories, setAssetHistories] = useState<AssetHistory[]>(() => {
+    try {
+      const saved = localStorage.getItem('ict_asset_history');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return isSupabaseConfigured ? [] : mockAssetHistory;
   });
   const [authError, setAuthError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -157,6 +165,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (reportsErr) {
         console.warn('service_reports table notice:', reportsErr);
       }
+
+      // Fetch Asset History & Audit Logs
+      try {
+        const { data: historyData, error: historyError } = await supabase
+          .from('asset_history')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!historyError && historyData) {
+          const mappedHistory: AssetHistory[] = historyData.map((h: any) => ({
+            id: h.id,
+            assetId: h.asset_id,
+            action: h.action,
+            changes: h.changes,
+            performedBy: h.performed_by,
+            performedByName: users.find(u => u.id === h.performed_by)?.name || 'Admin',
+            createdAt: h.created_at
+          }));
+          setAssetHistories(mappedHistory);
+          try {
+            localStorage.setItem('ict_asset_history', JSON.stringify(mappedHistory));
+          } catch (e) {}
+        }
+      } catch (historyErr) {
+        console.warn('asset_history table notice:', historyErr);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data from server.');
@@ -171,12 +205,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const assetsSub = supabase.channel('assets-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, fetchData).subscribe();
       const commentsSub = supabase.channel('comments-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_comments' }, fetchData).subscribe();
       const reportsSub = supabase.channel('service-reports-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'service_reports' }, fetchData).subscribe();
+      const historySub = supabase.channel('asset-history-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'asset_history' }, fetchData).subscribe();
       
       return () => {
         ticketsSub.unsubscribe();
         assetsSub.unsubscribe();
         commentsSub.unsubscribe();
         reportsSub.unsubscribe();
+        historySub.unsubscribe();
       };
     }
   }, []);
@@ -307,15 +343,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const createNewAsset = async (asset: any) => {
+    const assetId = asset.id || 'ast_' + Math.random().toString(36).substring(2, 9);
+    const initialHistory: AssetHistory = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `ah-${Date.now()}`,
+      assetId: assetId,
+      action: 'CREATED',
+      changes: JSON.stringify({
+        performedByName: currentUser?.name || 'Administrator',
+        diffs: [
+          { field: 'Equipment Registered', from: 'None', to: `${asset.equipmentType} - ${asset.brand} ${asset.model}`.trim() }
+        ]
+      }),
+      performedBy: currentUser?.id,
+      performedByName: currentUser?.name || 'Administrator',
+      createdAt: new Date().toISOString()
+    };
+
     if (!isSupabaseConfigured) {
-      const newAsset = { ...asset, id: asset.id || 'ast_' + Math.random().toString(36).substring(2, 9) };
+      const newAsset = { ...asset, id: assetId };
       setAssets(prev => [newAsset, ...prev]);
+      setAssetHistories(prev => {
+        const updated = [initialHistory, ...prev];
+        try { localStorage.setItem('ict_asset_history', JSON.stringify(updated)); } catch(e){}
+        return updated;
+      });
       toast.success('Asset created locally.');
       return;
     }
     try {
-      const { error } = await supabase.from('assets').insert(mapAssetToDB(asset));
+      const { data, error } = await supabase.from('assets').insert(mapAssetToDB(asset)).select();
       if (error) throw error;
+
+      if (data && data[0]) {
+        const remoteHistory: AssetHistory = {
+          ...initialHistory,
+          assetId: data[0].id
+        };
+        setAssetHistories(prev => {
+          const updated = [remoteHistory, ...prev];
+          try { localStorage.setItem('ict_asset_history', JSON.stringify(updated)); } catch(e){}
+          return updated;
+        });
+
+        try {
+          await supabase.from('asset_history').insert({
+            asset_id: data[0].id,
+            action: 'CREATED',
+            changes: remoteHistory.changes,
+            performed_by: currentUser?.id || null
+          });
+        } catch (e) {
+          console.warn('asset_history insert notice:', e);
+        }
+      }
       fetchData();
     } catch (error: any) {
       toast.error('Failed to create asset: ' + error.message);
@@ -323,27 +403,129 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
   
   const updateExistingAsset = async (id: string, updates: any) => {
+    const oldAsset = assets.find(a => a.id === id);
+    
+    // Calculate field diffs
+    const diffs: { field: string; from: string; to: string }[] = [];
+    const FIELD_LABELS: Record<string, string> = {
+      assetCode: 'Asset Code',
+      officeId: 'Office / Department',
+      equipmentType: 'Equipment Type',
+      propertyNumber: 'Property Number',
+      inventoryNumber: 'Inventory Number',
+      brand: 'Brand',
+      model: 'Model',
+      serialNumber: 'Serial Number',
+      hostname: 'Hostname',
+      processor: 'Processor',
+      memory: 'Memory (RAM)',
+      diskStorage: 'Disk Storage',
+      assignedTo: 'Assigned Custodian / End-User',
+      exactLocation: 'Exact Location',
+      operatingSystem: 'Operating System',
+      microsoftOffice: 'Microsoft Office',
+      condition: 'Physical Condition',
+      operationalStatus: 'Operational Status',
+      acquisitionCost: 'Acquisition Cost',
+      dateAcquired: 'Date Acquired',
+      dateAudited: 'Audit Date',
+      auditedBy: 'Audited By',
+      remarks: 'Remarks'
+    };
+
+    if (oldAsset) {
+      for (const key of Object.keys(updates)) {
+        if (key === 'history' || key === 'id') continue;
+        
+        let oldVal = (oldAsset as any)[key] ?? '';
+        let newVal = updates[key] ?? '';
+        
+        // Normalize dates (strip time if compared with YYYY-MM-DD)
+        if (typeof oldVal === 'string' && oldVal.includes('T') && typeof newVal === 'string' && !newVal.includes('T')) {
+          oldVal = oldVal.split('T')[0];
+        }
+        
+        // Clean office name for officeId
+        if (key === 'officeId') {
+          const oldOfficeName = offices.find(o => o.id === oldVal)?.name || oldVal;
+          const newOfficeName = offices.find(o => o.id === newVal)?.name || newVal;
+          if (oldOfficeName !== newOfficeName) {
+            diffs.push({
+              field: FIELD_LABELS[key] || key,
+              from: String(oldOfficeName || 'None'),
+              to: String(newOfficeName || 'None')
+            });
+          }
+          continue;
+        }
+
+        // Compare stringified values
+        if (String(oldVal).trim() !== String(newVal).trim()) {
+          diffs.push({
+            field: FIELD_LABELS[key] || key,
+            from: String(oldVal || 'None'),
+            to: String(newVal || 'None')
+          });
+        }
+      }
+    }
+
+    const hasAuditFields = diffs.some(d => d.field === 'Audit Date' || d.field === 'Audited By');
+    const actionType: 'AUDITED' | 'UPDATED' = hasAuditFields ? 'AUDITED' : 'UPDATED';
+    
+    // Create new history entry if diffs exist
+    let newHistoryEntry: AssetHistory | null = null;
+    if (diffs.length > 0) {
+      newHistoryEntry = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `ah-${Date.now()}`,
+        assetId: id,
+        action: actionType,
+        changes: JSON.stringify({
+          performedByName: currentUser?.name || 'Administrator',
+          diffs: diffs
+        }),
+        performedBy: currentUser?.id,
+        performedByName: currentUser?.name || 'Administrator',
+        createdAt: new Date().toISOString()
+      };
+    }
+
     if (!isSupabaseConfigured) {
       setAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+      if (newHistoryEntry) {
+        setAssetHistories(prev => {
+          const updated = [newHistoryEntry!, ...prev];
+          try { localStorage.setItem('ict_asset_history', JSON.stringify(updated)); } catch(e){}
+          return updated;
+        });
+      }
       toast.success('Asset updated locally.');
       return;
     }
+
     try {
-      const oldAsset = assets.find(a => a.id === id);
       const { error } = await supabase.from('assets').update(mapAssetToDB(updates)).eq('id', id);
       if (error) throw error;
       
-      // Calculate changes
-      if (oldAsset && currentUser) {
-        let changesStr = '';
-        for (const key of Object.keys(updates)) {
-          if (oldAsset[key as keyof typeof oldAsset] !== updates[key] && key !== 'history') {
-            changesStr += `${key} changed from "${oldAsset[key as keyof typeof oldAsset] || 'None'}" to "${updates[key]}". `;
-          }
+      if (newHistoryEntry) {
+        // Optimistically update local state & localStorage immediately
+        setAssetHistories(prev => {
+          const updated = [newHistoryEntry!, ...prev];
+          try { localStorage.setItem('ict_asset_history', JSON.stringify(updated)); } catch(e){}
+          return updated;
+        });
+
+        // Insert into Supabase asset_history with error guard
+        try {
+          await supabase.from('asset_history').insert({
+            asset_id: id,
+            action: newHistoryEntry.action,
+            changes: newHistoryEntry.changes,
+            performed_by: currentUser?.id || null
+          });
+        } catch (histErr) {
+          console.warn('Could not record to remote asset_history table:', histErr);
         }
-        
-        // Note: asset_history has been removed
-        
       }
       
       fetchData();
@@ -534,7 +716,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       currentUser, login, logout, tickets, createNewTicket, changeTicketStatus, updateTicketPriority, addComment, updateRecommendation,
-      users, updateUserRole, assets, createNewAsset, updateExistingAsset, offices, createNewOffice, updateExistingOffice,
+      users, updateUserRole, assets, assetHistories, createNewAsset, updateExistingAsset, offices, createNewOffice, updateExistingOffice,
       serviceReports, createServiceReport, updateServiceReport, deleteServiceReport, getNextReportNumber, markReportPrinted,
       categories: mockCategories, authError, theme, toggleTheme
     }}>
