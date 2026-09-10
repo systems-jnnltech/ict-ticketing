@@ -12,6 +12,8 @@ interface ServiceReportModalProps {
   existingReportId?: string;
 }
 
+export type PaperSize = 'a4' | 'letter' | 'legal';
+
 const FINAL_STATUS_OPTIONS: FinalServiceStatus[] = [
   'Resolved',
   'Repaired',
@@ -59,6 +61,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     : serviceReports.find(r => r.ticketId === ticket.id);
 
   const [activeTab, setActiveTab] = useState<'preview' | 'form'>(existingReport ? 'preview' : 'form');
+  const [paperSize, setPaperSize] = useState<PaperSize>('a4');
   const [isSaving, setIsSaving] = useState(false);
 
   // Associated metadata
@@ -185,7 +188,19 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     }
   };
 
-  // Robust, pristine isolated-iframe printing that never shows blank in Chrome/Edge
+  const getPageSizeRule = (size: PaperSize) => {
+    switch (size) {
+      case 'letter':
+        return '@page { size: letter portrait; margin: 5mm 8mm; }';
+      case 'legal':
+        return '@page { size: legal portrait; margin: 8mm 12mm; }';
+      case 'a4':
+      default:
+        return '@page { size: A4 portrait; margin: 6mm 10mm; }';
+    }
+  };
+
+  // Robust, single-page isolated-iframe printing for A4, Letter, and Legal
   const handlePrint = async () => {
     if (existingReport) {
       await markReportPrinted(existingReport.id);
@@ -208,7 +223,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       return;
     }
 
-    // Collect all loaded CSS rules to ensure exact styling
+    // Collect all loaded CSS rules to preserve Tailwind classes
     const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
       .map(node => node.outerHTML)
       .join('\n');
@@ -222,10 +237,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           <title>ICT Technical Service Report - ${reportNumber || ticket.ticketNumber}</title>
           ${styles}
           <style>
-            @page {
-              size: A4 portrait;
-              margin: 10mm 12mm;
-            }
+            ${getPageSizeRule(paperSize)}
             *, *:before, *:after {
               box-sizing: border-box !important;
               -webkit-print-color-adjust: exact !important;
@@ -233,12 +245,14 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             }
             html, body {
               width: 100% !important;
-              height: auto !important;
+              height: 100% !important;
               margin: 0 !important;
               padding: 0 !important;
               background: #ffffff !important;
               color: #000000 !important;
               font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             #official-tsr-printout {
               display: block !important;
@@ -251,15 +265,26 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               box-shadow: none !important;
               background-color: #ffffff !important;
               color: #000000 !important;
+              page-break-after: avoid !important;
+              break-after: avoid !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             table {
               width: 100% !important;
               border-collapse: collapse !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             th, td {
               border: 1px solid #000000 !important;
-              padding: 4px 6px !important;
-              font-size: 11px !important;
+              padding: 3px 6px !important;
+              font-size: 10.5px !important;
+              line-height: 1.25 !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             .bg-gray-100 {
               background-color: #f3f4f6 !important;
@@ -301,9 +326,10 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       {/* Fallback Print Specific CSS Rules */}
       <style>{`
         @media print {
+          ${getPageSizeRule(paperSize)}
           html, body {
-            height: auto !important;
-            overflow: visible !important;
+            height: 100% !important;
+            overflow: hidden !important;
             background: #ffffff !important;
           }
           header, aside, nav, form, .no-print {
@@ -327,10 +353,8 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             box-shadow: none !important;
             color: #000 !important;
             background: #fff !important;
-          }
-          @page {
-            size: A4 portrait;
-            margin: 10mm 12mm;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
         }
       `}</style>
@@ -339,7 +363,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       <div className="bg-surface border border-border w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:w-full print:rounded-none">
         
         {/* Modal Header */}
-        <header className="px-6 py-4 border-b border-border bg-bg/80 flex items-center justify-between shrink-0 print:hidden">
+        <header className="px-6 py-4 border-b border-border bg-bg/80 flex items-center justify-between shrink-0 print:hidden flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shadow-sm">
               <FileText className="w-5 h-5" />
@@ -358,32 +382,67 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Paper Size Selector */}
+            <div className="flex items-center gap-1 bg-surface border border-border rounded-xl p-1 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-ink-muted px-1.5 hidden sm:inline">Size:</span>
+              <button
+                type="button"
+                onClick={() => setPaperSize('a4')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  paperSize === 'a4' ? 'bg-accent text-white shadow-sm' : 'text-ink-muted hover:text-ink hover:bg-bg'
+                }`}
+                title="A4 (210 x 297 mm)"
+              >
+                A4
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaperSize('letter')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  paperSize === 'letter' ? 'bg-accent text-white shadow-sm' : 'text-ink-muted hover:text-ink hover:bg-bg'
+                }`}
+                title="Short / Letter (8.5 x 11 in)"
+              >
+                Short/Letter
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaperSize('legal')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  paperSize === 'legal' ? 'bg-accent text-white shadow-sm' : 'text-ink-muted hover:text-ink hover:bg-bg'
+                }`}
+                title="Legal / Long (8.5 x 13/14 in)"
+              >
+                Legal
+              </button>
+            </div>
+
             {/* View Switcher Tabs */}
-            <div className="flex bg-surface border border-border rounded-xl p-1 shadow-sm mr-2">
+            <div className="flex bg-surface border border-border rounded-xl p-1 shadow-sm">
               <button
                 type="button"
                 onClick={() => setActiveTab('form')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
                   activeTab === 'form' 
                     ? 'bg-accent text-white shadow-sm' 
                     : 'text-ink-muted hover:text-ink hover:bg-bg'
                 }`}
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit & Review</span>
+                <span>Edit</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('preview')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
                   activeTab === 'preview' 
                     ? 'bg-accent text-white shadow-sm' 
                     : 'text-ink-muted hover:text-ink hover:bg-bg'
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>A4 Print View</span>
+                <span>Preview</span>
               </button>
             </div>
 
@@ -394,7 +453,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               title="Print official document or save as PDF"
             >
               <Printer className="w-4 h-4" />
-              <span className="hidden sm:inline">Print / Save PDF</span>
+              <span>Print / PDF</span>
             </button>
 
             <button
@@ -660,28 +719,29 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             </form>
           )}
 
-          {/* TAB 2: A4 OFFICIAL PRINTOUT PREVIEW & PRINT TARGET */}
+          {/* TAB 2: OFFICIAL PRINTOUT PREVIEW & PRINT TARGET (Optimized for Single-Page on A4, Letter, Legal) */}
           <div 
             id="official-tsr-printout" 
-            className={`bg-white text-black p-8 sm:p-12 max-w-[800px] mx-auto border border-gray-300 shadow-lg rounded-sm font-serif print:shadow-none print:border-none print:p-0 print:max-w-none print:m-0 ${
+            className={`bg-white text-black p-5 sm:p-7 mx-auto border border-gray-300 shadow-lg rounded-sm font-serif print:shadow-none print:border-none print:p-0 print:m-0 ${
+              paperSize === 'letter' ? 'max-w-[760px]' : (paperSize === 'legal' ? 'max-w-[780px]' : 'max-w-[780px]')
+            } ${
               activeTab === 'preview' ? 'block' : 'hidden print:block'
             }`}
-            style={{ minHeight: '1050px' }}
           >
             {/* LGU Letterhead */}
-            <div className="text-center relative pb-3 border-b-2 border-black">
-              <div className="flex items-center justify-center gap-4">
+            <div className="text-center relative pb-2 border-b-2 border-black">
+              <div className="flex items-center justify-center gap-3">
                 <img 
                   src="/LGU_LOGO1.png" 
                   alt="LGU Malungon Seal" 
-                  className="w-16 h-16 object-contain absolute left-2 top-0 print:left-0"
+                  className="w-14 h-14 object-contain absolute left-1 top-0 print:left-0"
                 />
                 <div className="space-y-0.5">
-                  <div className="text-[11px] font-sans font-bold tracking-wider uppercase text-gray-700">Republic of the Philippines</div>
-                  <div className="text-[11px] font-sans font-bold tracking-wider uppercase text-gray-700">Province of Sarangani</div>
-                  <div className="text-xs font-sans font-black tracking-wider uppercase text-black">Municipality of Malungon</div>
-                  <div className="text-[11px] font-sans font-bold tracking-wider uppercase text-gray-800">Office of the Municipal Mayor</div>
-                  <div className="text-xs font-sans font-black tracking-wider uppercase text-black pt-1">
+                  <div className="text-[10px] font-sans font-bold tracking-wider uppercase text-gray-700 leading-tight">Republic of the Philippines</div>
+                  <div className="text-[10px] font-sans font-bold tracking-wider uppercase text-gray-700 leading-tight">Province of Sarangani</div>
+                  <div className="text-[11px] font-sans font-black tracking-wider uppercase text-black leading-tight">Municipality of Malungon</div>
+                  <div className="text-[10px] font-sans font-bold tracking-wider uppercase text-gray-800 leading-tight">Office of the Municipal Mayor</div>
+                  <div className="text-[11px] font-sans font-black tracking-wider uppercase text-black pt-0.5 leading-tight">
                     Information & Communications Technology (ICT) Section
                   </div>
                 </div>
@@ -689,80 +749,80 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             </div>
 
             {/* Document Title & Reference Bar */}
-            <div className="text-center my-4">
-              <h1 className="text-lg font-sans font-black uppercase tracking-wider text-black border-y border-black py-1 inline-block px-8">
+            <div className="text-center my-2.5">
+              <h1 className="text-base font-sans font-black uppercase tracking-wider text-black border-y border-black py-0.5 inline-block px-8">
                 ICT TECHNICAL SERVICE REPORT
               </h1>
             </div>
 
             {/* Metadata Bar */}
-            <div className="grid grid-cols-2 text-xs font-sans border border-black mb-4 bg-gray-50 print:bg-transparent">
-              <div className="p-2 border-r border-black space-y-1">
-                <div><span className="font-bold">REPORT NO:</span> <span className="font-mono font-bold text-sm">{reportNumber || 'TSR-PENDING'}</span></div>
+            <div className="grid grid-cols-2 text-[11px] font-sans border border-black mb-2.5 bg-gray-50 print:bg-transparent">
+              <div className="p-1.5 border-r border-black space-y-0.5">
+                <div><span className="font-bold">REPORT NO:</span> <span className="font-mono font-bold text-xs">{reportNumber || 'TSR-PENDING'}</span></div>
                 <div><span className="font-bold">DATE GENERATED:</span> {format(new Date(reportDate || new Date()), 'MMMM dd, yyyy')}</div>
               </div>
-              <div className="p-2 space-y-1">
+              <div className="p-1.5 space-y-0.5">
                 <div><span className="font-bold">REFERENCE TICKET NO:</span> <span className="font-mono font-bold">{ticket.ticketNumber}</span></div>
                 <div><span className="font-bold">FINAL SERVICE STATUS:</span> <span className="font-bold uppercase underline">{finalStatus}</span></div>
               </div>
             </div>
 
             {/* SECTION A: REQUESTING OFFICE DETAILS */}
-            <div className="mb-4">
-              <div className="bg-black text-white text-[10px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-1 print:bg-black print:text-white">
+            <div className="mb-2.5">
+              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 I. Request & Office Information
               </div>
-              <table className="w-full text-xs font-sans border-collapse border border-black">
+              <table className="w-full text-[10.5px] font-sans border-collapse border border-black">
                 <tbody>
                   <tr className="border-b border-black">
-                    <td className="w-1/3 p-1.5 bg-gray-100 font-bold border-r border-black">Requesting Office / Dept:</td>
-                    <td className="w-2/3 p-1.5 font-semibold uppercase">{department?.name || 'N/A'}</td>
+                    <td className="w-1/3 p-1 bg-gray-100 font-bold border-r border-black">Requesting Office / Dept:</td>
+                    <td className="w-2/3 p-1 font-semibold uppercase">{department?.name || 'N/A'}</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">End-User / Requested By:</td>
-                    <td className="p-1.5">{requester?.name || 'Staff'} ({requester?.email || 'N/A'})</td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">End-User / Requested By:</td>
+                    <td className="p-1">{requester?.name || 'Staff'} ({requester?.email || 'N/A'})</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">Date & Time Requested:</td>
-                    <td className="p-1.5">{format(new Date(ticket.createdAt), 'MMMM dd, yyyy • hh:mm a')}</td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Date & Time Requested:</td>
+                    <td className="p-1">{format(new Date(ticket.createdAt), 'MMMM dd, yyyy • hh:mm a')}</td>
                   </tr>
                   <tr>
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">Issue Category & Priority:</td>
-                    <td className="p-1.5">{category?.name || 'Hardware Support'} • <span className="font-bold uppercase">{ticket.priority} Priority</span></td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Issue Category & Priority:</td>
+                    <td className="p-1">{category?.name || 'Hardware Support'} • <span className="font-bold uppercase">{ticket.priority} Priority</span></td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             {/* SECTION B: EQUIPMENT / ASSET DETAILS */}
-            <div className="mb-4">
-              <div className="bg-black text-white text-[10px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-1 print:bg-black print:text-white">
+            <div className="mb-2.5">
+              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 II. Serviced Equipment & Property Details
               </div>
-              <table className="w-full text-xs font-sans border-collapse border border-black">
+              <table className="w-full text-[10.5px] font-sans border-collapse border border-black">
                 <tbody>
                   <tr className="border-b border-black">
-                    <td className="w-1/4 p-1.5 bg-gray-100 font-bold border-r border-black">Equipment Type:</td>
-                    <td className="w-1/4 p-1.5 border-r border-black">{asset?.equipmentType || 'Computer Unit'}</td>
-                    <td className="w-1/4 p-1.5 bg-gray-100 font-bold border-r border-black">Brand & Model:</td>
-                    <td className="w-1/4 p-1.5">{asset ? `${asset.brand} ${asset.model}` : 'Standard Office Machine'}</td>
+                    <td className="w-1/4 p-1 bg-gray-100 font-bold border-r border-black">Equipment Type:</td>
+                    <td className="w-1/4 p-1 border-r border-black">{asset?.equipmentType || 'Computer Unit'}</td>
+                    <td className="w-1/4 p-1 bg-gray-100 font-bold border-r border-black">Brand & Model:</td>
+                    <td className="w-1/4 p-1">{asset ? `${asset.brand} ${asset.model}` : 'Standard Office Machine'}</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">Property / Inv. No:</td>
-                    <td className="p-1.5 font-mono border-r border-black">{asset?.propertyNumber || asset?.inventoryNumber || 'N/A'}</td>
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">Serial Number:</td>
-                    <td className="p-1.5 font-mono">{asset?.serialNumber || 'N/A'}</td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Property / Inv. No:</td>
+                    <td className="p-1 font-mono border-r border-black">{asset?.propertyNumber || asset?.inventoryNumber || 'N/A'}</td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Serial Number:</td>
+                    <td className="p-1 font-mono">{asset?.serialNumber || 'N/A'}</td>
                   </tr>
                   <tr>
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">Asset Code / Tag:</td>
-                    <td className="p-1.5 font-mono font-bold border-r border-black">{asset?.assetCode || 'N/A'}</td>
-                    <td className="p-1.5 bg-gray-100 font-bold border-r border-black">Assigned Location:</td>
-                    <td className="p-1.5">{asset?.exactLocation || department?.name || 'LGU Malungon Compound'}</td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Asset Code / Tag:</td>
+                    <td className="p-1 font-mono font-bold border-r border-black">{asset?.assetCode || 'N/A'}</td>
+                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Assigned Location:</td>
+                    <td className="p-1">{asset?.exactLocation || department?.name || 'LGU Malungon Compound'}</td>
                   </tr>
                   {(asset?.processor || asset?.memory || asset?.diskStorage || asset?.operatingSystem) && (
                     <tr className="border-t border-black bg-gray-50 print:bg-transparent">
-                      <td className="p-1.5 font-bold border-r border-black">Hardware Specs:</td>
-                      <td colSpan={3} className="p-1.5 font-mono text-[11px]">
+                      <td className="p-1 font-bold border-r border-black">Hardware Specs:</td>
+                      <td colSpan={3} className="p-1 font-mono text-[9.5px]">
                         {[asset.processor, asset.memory, asset.diskStorage, asset.operatingSystem].filter(Boolean).join(' | ')}
                       </td>
                     </tr>
@@ -772,81 +832,81 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             </div>
 
             {/* SECTION C: REPORTED PROBLEM & DIAGNOSIS */}
-            <div className="mb-4">
-              <div className="bg-black text-white text-[10px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-1 print:bg-black print:text-white">
+            <div className="mb-2.5">
+              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 III. Reported Issue & Diagnosis
               </div>
-              <div className="border border-black p-2 text-xs font-sans space-y-1">
+              <div className="border border-black p-1.5 text-[10.5px] font-sans space-y-0.5">
                 <div><strong className="font-bold">Subject / Symptom:</strong> {diagnosis}</div>
-                <div className="text-gray-700 italic border-t border-gray-300 pt-1 mt-1">
+                <div className="text-gray-700 italic border-t border-gray-200 pt-0.5 mt-0.5 leading-tight">
                   "{ticket.description}"
                 </div>
               </div>
             </div>
 
             {/* SECTION D: TECHNICAL ASSESSMENT & ACTION TAKEN */}
-            <div className="mb-4">
-              <div className="bg-black text-white text-[10px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-1 print:bg-black print:text-white">
+            <div className="mb-2.5">
+              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 IV. Technical Assessment & Action Taken
               </div>
-              <div className="border border-black text-xs font-sans">
-                <div className="p-2 border-b border-black">
-                  <div className="font-bold mb-1 uppercase text-[10px] text-gray-700">A. Diagnostic Findings & Root Cause:</div>
-                  <p className="whitespace-pre-wrap leading-relaxed">{technicalFindings}</p>
+              <div className="border border-black text-[10.5px] font-sans">
+                <div className="p-1.5 border-b border-black">
+                  <div className="font-bold mb-0.5 uppercase text-[9px] text-gray-700">A. Diagnostic Findings & Root Cause:</div>
+                  <p className="whitespace-pre-wrap leading-tight">{technicalFindings}</p>
                 </div>
-                <div className="p-2">
-                  <div className="font-bold mb-1 uppercase text-[10px] text-gray-700">B. Troubleshooting Conducted & Action Taken:</div>
-                  <p className="whitespace-pre-wrap leading-relaxed">{actionTaken}</p>
+                <div className="p-1.5">
+                  <div className="font-bold mb-0.5 uppercase text-[9px] text-gray-700">B. Troubleshooting Conducted & Action Taken:</div>
+                  <p className="whitespace-pre-wrap leading-tight">{actionTaken}</p>
                 </div>
               </div>
             </div>
 
             {/* SECTION E: RECOMMENDATION */}
-            <div className="mb-6">
-              <div className="bg-black text-white text-[10px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-1 print:bg-black print:text-white">
+            <div className="mb-3">
+              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 V. ICT Recommendation
               </div>
-              <div className="border border-black p-2.5 text-xs font-sans bg-gray-50 print:bg-transparent">
-                <p className="font-semibold whitespace-pre-wrap leading-relaxed">
+              <div className="border border-black p-1.5 text-[10.5px] font-sans bg-gray-50 print:bg-transparent">
+                <p className="font-semibold whitespace-pre-wrap leading-tight">
                   {recommendation}
                 </p>
               </div>
             </div>
 
             {/* SECTION F: CERTIFICATION & SIGNATORIES (Aligned 2 columns) */}
-            <div className="mt-8 pt-2">
-              <p className="text-[10px] font-sans italic text-center mb-8 text-gray-800">
+            <div className="mt-3 pt-1">
+              <p className="text-[9px] font-sans italic text-center mb-4 text-gray-800">
                 I hereby certify that the technical diagnosis, assessment, and repair actions detailed in this document were officially performed in accordance with standard LGU ICT maintenance procedures.
               </p>
 
-              <div className="grid grid-cols-2 gap-12 sm:gap-20 max-w-2xl mx-auto text-center font-sans">
+              <div className="grid grid-cols-2 gap-10 sm:gap-16 max-w-xl mx-auto text-center font-sans">
                 {/* Reviewed & Approved By */}
                 <div className="flex flex-col justify-end text-center">
-                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-10">Reviewed & Approved by:</div>
-                  <div className="border-b border-black font-black uppercase text-xs pb-0.5">
+                  <div className="text-[9px] uppercase font-bold text-gray-700 mb-8">Reviewed & Approved by:</div>
+                  <div className="border-b border-black font-black uppercase text-[11px] pb-0.5">
                     {ictHeadName || 'Engr. Kenneth Jones D. Alforque'}
                   </div>
-                  <div className="text-[10px] font-bold text-gray-800 mt-1">Information System Analyst</div>
-                  <div className="text-[9px] text-gray-500 mt-0.5">Date: ____________________</div>
+                  <div className="text-[9px] font-bold text-gray-800 mt-0.5">Information System Analyst</div>
+                  <div className="text-[8px] text-gray-500 mt-0.5">Date: ____________________</div>
                 </div>
 
                 {/* Received & Noted By */}
                 <div className="flex flex-col justify-end text-center">
-                  <div className="text-[10px] uppercase font-bold text-gray-700 mb-10">Received & Noted by:</div>
-                  <div className="border-b border-black font-bold uppercase text-xs pb-0.5">
+                  <div className="text-[9px] uppercase font-bold text-gray-700 mb-8">Received & Noted by:</div>
+                  <div className="border-b border-black font-bold uppercase text-[11px] pb-0.5">
                     {officeHeadName || 'Authorized Office Representative'}
                   </div>
-                  <div className="text-[10px] text-gray-700 mt-1">Head of Office / Custodian</div>
-                  <div className="text-[9px] text-gray-500 mt-0.5">Date: ____________________</div>
+                  <div className="text-[9px] text-gray-700 mt-0.5">Head of Office / Custodian</div>
+                  <div className="text-[8px] text-gray-500 mt-0.5">Date: ____________________</div>
                 </div>
               </div>
             </div>
 
             {/* Print Footer */}
-            <div className="mt-12 pt-2 border-t border-gray-300 flex justify-between items-center text-[8px] font-sans text-gray-500">
+            <div className="mt-4 pt-1.5 border-t border-gray-300 flex justify-between items-center text-[7.5px] font-sans text-gray-500">
               <span>LGU Malungon ICT Help Desk System • Official Technical Documentation</span>
-              <span>Generated on: {format(new Date(), 'yyyy-MM-dd HH:mm:ss')}</span>
-              <span>Page 1 of 1</span>
+              <span>Paper Size: {paperSize.toUpperCase()}</span>
+              <span>Generated on: {format(new Date(), 'yyyy-MM-dd HH:mm:ss')} • Page 1 of 1</span>
             </div>
 
           </div>
