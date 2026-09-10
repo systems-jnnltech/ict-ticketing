@@ -1,7 +1,7 @@
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useState } from "react";
 import { useAppContext } from "../store/AppContext";
-import { ArrowLeft, Monitor, Search, Edit2, Plus, X, Upload, Database } from "lucide-react";
+import { ArrowLeft, Monitor, Search, Edit2, Plus, X, Upload, Database, FileCheck, ShieldCheck } from "lucide-react";
 import { format } from "date-fns";
 import { BulkImportModal } from "./BulkImportModal";
 import { findOfficeForAsset } from "../lib/mappers";
@@ -171,13 +171,29 @@ export function AssetDetail({
   onBack: () => void;
   onEdit?: () => void;
 }) {
-  const { assets, offices, tickets, currentUser } = useAppContext();
+  const { assets, offices, tickets, currentUser, assetHistories } = useAppContext();
   const asset = assets.find((a) => a.id === assetId);
   const [showQR, setShowQR] = React.useState(false);
 
   if (!asset) return null;
   const office = offices.find((o) => o.id === asset.officeId) || findOfficeForAsset(asset, offices);
   const relatedTickets = tickets.filter((t) => t.assetId === asset.id);
+  const relatedHistories = (assetHistories || []).filter((h) => h.assetId === asset.id);
+
+  const combinedTimeline = [
+    ...relatedTickets.map((t) => ({
+      id: `ticket-${t.id}`,
+      type: 'ticket' as const,
+      date: new Date(t.createdAt).getTime(),
+      ticket: t
+    })),
+    ...relatedHistories.map((h) => ({
+      id: `history-${h.id}`,
+      type: 'audit' as const,
+      date: new Date(h.createdAt).getTime(),
+      history: h
+    }))
+  ].sort((a, b) => b.date - a.date);
 
   return (
     <div className="space-y-8 max-w-[1200px] mx-auto pb-16">
@@ -409,23 +425,26 @@ export function AssetDetail({
               Service & Audit Timeline
             </h3>
             <span className="text-[10px] text-ink-muted bg-surface border border-border px-3 py-1 rounded-md font-mono font-bold tracking-widest">
-              RECORDS: {relatedTickets.length}
+              RECORDS: {combinedTimeline.length}
             </span>
           </div>
           
           <div className="divide-y divide-border">
-            {relatedTickets.length === 0 ? (
+            {combinedTimeline.length === 0 ? (
               <div className="p-10 text-center text-ink-muted text-sm font-medium">
-                No service tickets recorded.
+                No service tickets or audit records found.
               </div>
             ) : (
               <>
-                {/* Related Tickets as Repair History */}
-                {relatedTickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="p-6 md:p-8 hover:bg-bg/50 transition-colors"
-                  >
+                {/* Related Tickets & Audit Logs */}
+                {combinedTimeline.map((item) => {
+                  if (item.type === 'ticket' && item.ticket) {
+                    const ticket = item.ticket;
+                    return (
+                      <div
+                        key={item.id}
+                        className="p-6 md:p-8 hover:bg-bg/50 transition-colors"
+                      >
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="font-bold text-sm text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
@@ -653,9 +672,90 @@ export function AssetDetail({
                       )}
                     </div>
                   </div>
-                ))}
-              </>
-            )}
+                );
+              }
+
+              if (item.type === 'audit' && item.history) {
+                const history = item.history;
+                let parsedChanges: { performedByName?: string; diffs?: { field: string; from: string; to: string }[]; summary?: string } = {};
+                try {
+                  parsedChanges = JSON.parse(history.changes);
+                } catch (e) {
+                  parsedChanges = { summary: history.changes };
+                }
+                const diffs = parsedChanges.diffs || [];
+                const actorName = parsedChanges.performedByName || history.performedByName || 'Admin';
+
+                return (
+                  <div key={item.id} className="p-6 md:p-8 hover:bg-bg/50 transition-colors">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className={`font-bold text-xs font-mono tracking-wider px-2.5 py-1 rounded border flex items-center gap-1.5 ${
+                          history.action === 'AUDITED'
+                            ? 'bg-purple-500/10 text-purple-600 border-purple-500/20'
+                            : history.action === 'CREATED'
+                            ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                            : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                        }`}>
+                          {history.action === 'AUDITED' && <ShieldCheck className="w-3.5 h-3.5" />}
+                          {history.action === 'CREATED' && <Database className="w-3.5 h-3.5" />}
+                          {history.action === 'UPDATED' && <FileCheck className="w-3.5 h-3.5" />}
+                          {history.action === 'AUDITED' ? 'PHYSICAL AUDIT' : history.action === 'CREATED' ? 'REGISTRATION' : 'RECORD UPDATE'}
+                        </span>
+                        <span className="font-bold text-sm text-ink">
+                          {history.action === 'AUDITED' 
+                            ? 'Physical Inventory Audit Recorded' 
+                            : history.action === 'CREATED'
+                            ? 'Equipment Registered in Municipal Database'
+                            : 'Asset Specification & Profile Updated'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border bg-surface border-border text-ink-muted">
+                        AUDIT LOG
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-4">
+                      <span>Recorded by: <strong className="text-ink font-semibold">{actorName}</strong></span>
+                      <span>•</span>
+                      <span>{format(new Date(history.createdAt), "MMM d, yyyy • h:mm a")}</span>
+                    </div>
+
+                    {diffs.length > 0 ? (
+                      <div className="bg-bg/60 border border-border rounded-xl overflow-hidden shadow-xs">
+                        <div className="px-4 py-2 bg-bg border-b border-border text-[10px] font-bold uppercase tracking-widest text-ink-muted">
+                          Documented Changes ({diffs.length})
+                        </div>
+                        <div className="p-4 divide-y divide-border/60">
+                          {diffs.map((diff: any, idx: number) => (
+                            <div key={idx} className="py-2.5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2">
+                              <span className="font-bold text-ink sm:w-1/3">{diff.field}</span>
+                              <div className="flex items-center gap-2 font-mono sm:w-2/3 flex-wrap">
+                                <span className="text-red-500/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 line-through truncate max-w-[220px]" title={diff.from}>
+                                  {diff.from}
+                                </span>
+                                <span className="text-ink-muted">➔</span>
+                                <span className="text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-bold truncate max-w-[220px]" title={diff.to}>
+                                  {diff.to}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-bg/50 border border-border rounded-xl p-3.5 text-xs text-ink-muted italic">
+                        {parsedChanges.summary || 'Equipment profile details updated.'}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              return null;
+            })}
+          </>
+        )}
           </div>
         </div>
       </div>
