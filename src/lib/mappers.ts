@@ -1,3 +1,5 @@
+import { ServiceReport } from '../store/mockData';
+
 const parseNumericCost = (val: any) => {
   if (val === null || val === undefined) return null;
   if (typeof val === 'number') return isNaN(val) ? null : val;
@@ -182,3 +184,41 @@ export const mapOfficeFromDB = (dbDepartment: any) => ({
   acronym: dbDepartment.acronym,
   email: dbDepartment.email
 });
+
+export const mapServiceReportFromDB = (dbReport: any): ServiceReport => ({
+  id: dbReport.id,
+  reportNumber: dbReport.report_number,
+  ticketId: dbReport.ticket_id,
+  reportDate: dbReport.report_date ? String(dbReport.report_date).split('T')[0] : new Date().toISOString().split('T')[0],
+  diagnosis: dbReport.diagnosis || '',
+  technicalFindings: dbReport.technical_findings || '',
+  actionTaken: dbReport.action_taken || '',
+  finalStatus: dbReport.final_status || 'Resolved',
+  recommendation: dbReport.recommendation || '',
+  preparedByName: dbReport.prepared_by_name || 'ICT Personnel',
+  preparedById: dbReport.prepared_by_id || undefined,
+  ictHeadName: dbReport.ict_head_name || 'Engr. Kenneth Jones D. Alforque',
+  officeHeadName: dbReport.office_head_name || 'Head of Office / Authorized Representative',
+  reportStatus: dbReport.report_status || 'Generated',
+  createdAt: dbReport.created_at,
+  updatedAt: dbReport.updated_at,
+  printedAt: dbReport.printed_at || undefined,
+});
+
+export const mapServiceReportToDB = (report: Partial<ServiceReport>) => ({
+  report_number: report.reportNumber,
+  ticket_id: report.ticketId,
+  report_date: report.reportDate,
+  diagnosis: report.diagnosis || null,
+  technical_findings: report.technicalFindings,
+  action_taken: report.actionTaken,
+  final_status: report.finalStatus,
+  recommendation: report.recommendation,
+  prepared_by_name: report.preparedByName,
+  prepared_by_id: report.preparedById || null,
+  ict_head_name: report.ictHeadName || 'Engr. Kenneth Jones D. Alforque',
+  office_head_name: report.officeHeadName || 'Head of Office / Authorized Representative',
+  report_status: report.reportStatus || 'Generated',
+  printed_at: report.printedAt || null,
+});
+
