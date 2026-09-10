@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { ArrowLeft, Clock, User, Monitor, AlertCircle, CheckCircle2, Send, Activity, X, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Clock, User, Monitor, AlertCircle, CheckCircle2, Send, Activity, X, ExternalLink, FileText, Printer, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { getTicketSLA } from '../utils/sla';
 import { Toast, ConfirmModal } from '../lib/toast';
 import Swal from 'sweetalert2';
 import { DispatchFormModal } from './DispatchFormModal';
+import { ServiceReportModal } from './ServiceReportModal';
 
 export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: () => void }) {
-  const { tickets, users, assets, offices, categories, currentUser, changeTicketStatus, updateTicketPriority, addComment, updateRecommendation } = useAppContext();
+  const { tickets, users, assets, offices, categories, currentUser, changeTicketStatus, updateTicketPriority, addComment, updateRecommendation, serviceReports } = useAppContext();
   const ticket = tickets.find(t => t.id === ticketId);
   const department = offices.find(o => o.id === ticket?.officeId);
   
@@ -19,6 +20,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
   const [showAssetModal, setShowAssetModal] = useState(false);
+  const [showServiceReportModal, setShowServiceReportModal] = useState(false);
   const [referralData, setReferralData] = useState({
     reason: 'Hardware repair requires specialized technician',
   });
@@ -56,6 +58,8 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
   const isAdminOrICT = currentUser?.role === 'Admin' || currentUser?.role === 'ICT Support';
   const hasReferralDetails = ticket.status === 'REFERRED' || (ticket.comments || []).some(c => c.text.includes('referred to external technician') || c.text.includes('DISPATCH_INFO'));
+  const existingServiceReport = serviceReports?.find(r => r.ticketId === ticket.id);
+  const isTicketCompleted = ticket.status === 'RESOLVED' || ticket.status === 'CLOSED';
 
   // Filter helper to exclude system status changes and hidden dispatch JSON metadata
   const isPublicDiscussionComment = (c: { text: string }) => 
@@ -396,7 +400,6 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
             <div className="h-px bg-border w-full"></div>
 
-            {/* Category & Asset */}
             <div className="flex items-start space-x-4">
                 <div className="w-12 h-12 rounded-xl bg-bg border border-border flex items-center justify-center shrink-0 shadow-sm">
                     <Monitor className="w-5 h-5 text-ink-muted" />
@@ -428,7 +431,6 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
             
             <div className="h-px bg-border w-full"></div>
             
-            {/* Timestamps with Clock Icon */}
             <div className="flex items-start space-x-4">
                 <div className="w-12 h-12 rounded-xl bg-bg border border-border flex items-center justify-center shrink-0 shadow-sm">
                     <Clock className="w-5 h-5 text-ink-muted" />
@@ -554,6 +556,58 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                     )}
                                 </div>
                             )}
+
+                            {/* ICT Technical Service Report Section (Admin Only) */}
+                            <div className="pt-4 border-t border-border space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted flex items-center gap-1.5">
+                                        <FileText className="w-3.5 h-3.5 text-accent" />
+                                        ICT Service Report (TSR)
+                                    </label>
+                                    {existingServiceReport && (
+                                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">
+                                            {existingServiceReport.reportNumber}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {isTicketCompleted ? (
+                                    existingServiceReport ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowServiceReportModal(true)}
+                                            className="w-full px-4 py-3 bg-accent text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                                        >
+                                            <Eye className="w-4 h-4" />
+                                            <span>View / Print Service Report</span>
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowServiceReportModal(true)}
+                                            className="w-full px-4 py-3 bg-accent text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                                        >
+                                            <FileText className="w-4 h-4" />
+                                            <span>Generate ICT Service Report</span>
+                                        </button>
+                                    )
+                                ) : (
+                                    <div className="space-y-1.5">
+                                        <button
+                                            type="button"
+                                            disabled
+                                            className="w-full px-4 py-3 bg-bg border border-dashed border-border text-ink-muted/50 rounded-xl text-[11px] font-bold uppercase tracking-widest cursor-not-allowed flex items-center justify-center gap-2"
+                                            title="Complete the technical assessment and service action before generating the official ICT Technical Service Report"
+                                        >
+                                            <FileText className="w-4 h-4" />
+                                            <span>Generate Service Report</span>
+                                        </button>
+                                        <p className="text-[10px] text-ink-muted italic text-center">
+                                            Available once ticket is <strong className="text-ink font-semibold">RESOLVED</strong> or <strong className="text-ink font-semibold">CLOSED</strong>.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                     
@@ -1013,6 +1067,16 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
             </div>
           </div>
         </div>
+      )}
+
+      {/* Service Report Modal (Admin Only) */}
+      {showServiceReportModal && ticket && (
+        <ServiceReportModal
+          ticket={ticket}
+          isOpen={showServiceReportModal}
+          onClose={() => setShowServiceReportModal(false)}
+          existingReportId={existingServiceReport?.id}
+        />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { LayoutDashboard, FileText, Ticket, MonitorSmartphone, LogOut, Menu, UserCircle, Building2, BarChart3, Sun, Moon, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, FileText, Ticket, MonitorSmartphone, LogOut, Menu, UserCircle, Building2, BarChart3, Sun, Moon, Users, ChevronLeft, ChevronRight, FileCheck } from 'lucide-react';
 
 export function Layout({ children, currentTab, setCurrentTab }: { children: React.ReactNode, currentTab: string, setCurrentTab: (tab: string) => void }) {
   const { currentUser, users, login, logout, theme, toggleTheme, tickets } = useAppContext();
@@ -24,6 +24,7 @@ export function Layout({ children, currentTab, setCurrentTab }: { children: Reac
     { id: 'tickets', label: 'Tickets', icon: Ticket, disabled: false, badge: ticketBadgeCount > 0 ? ticketBadgeCount : undefined },
     { id: 'assets', label: 'Assets', icon: MonitorSmartphone, disabled: false },
     ...(isAdmin ? [
+      { id: 'service_reports', label: 'Service Reports', icon: FileCheck, disabled: false },
       { id: 'users', label: 'Users', icon: Users, disabled: false },
       { id: 'departments', label: 'Departments', icon: Building2, disabled: false },
       { id: 'audit_logs', label: 'Audit Logs', icon: FileText, disabled: false },
