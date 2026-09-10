@@ -277,3 +277,38 @@ export function updateAsset(id: string, updates: Partial<Omit<Asset, 'id'>>) {
   );
 }
 
+export type FinalServiceStatus = 
+  | 'Resolved'
+  | 'Repaired'
+  | 'For Monitoring'
+  | 'For Further Assessment'
+  | 'For Replacement'
+  | 'For Procurement'
+  | 'For Disposal'
+  | 'Referred to Service Provider';
+
+export type ServiceReportStatus = 'Draft' | 'Generated' | 'Reviewed' | 'Signed' | 'Released';
+
+export interface ServiceReport {
+  id: string;
+  reportNumber: string; // e.g. TSR-2026-0001
+  ticketId: string;
+  reportDate: string; // YYYY-MM-DD
+  diagnosis?: string;
+  technicalFindings: string;
+  actionTaken: string;
+  finalStatus: FinalServiceStatus;
+  recommendation: string;
+  preparedByName: string;
+  preparedById?: string;
+  ictHeadName: string; // default: 'Engr. Kenneth Jones D. Alforque'
+  officeHeadName: string; // default: 'Head of Office / Authorized Representative'
+  reportStatus: ServiceReportStatus;
+  createdAt: string;
+  updatedAt: string;
+  printedAt?: string;
+}
+
+export let mockServiceReports: ServiceReport[] = [];
+
+

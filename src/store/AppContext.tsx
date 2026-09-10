@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Ticket, Asset, Office, mockCategories, mockTickets, mockAssets, mockOffices, mockUsers } from './mockData';
+import { User, Ticket, Asset, Office, ServiceReport, mockCategories, mockTickets, mockAssets, mockOffices, mockUsers, mockServiceReports } from './mockData';
 import { useAuth } from './AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { mapAssetFromDB, mapAssetToDB, mapTicketFromDB, mapTicketToDB, mapUserFromDB, mapOfficeFromDB, sanitizeDepartmentId, findOfficeForAsset } from '../lib/mappers';
+import { mapAssetFromDB, mapAssetToDB, mapTicketFromDB, mapTicketToDB, mapUserFromDB, mapOfficeFromDB, mapServiceReportFromDB, mapServiceReportToDB, sanitizeDepartmentId, findOfficeForAsset } from '../lib/mappers';
 import { toast } from 'sonner';
 
 interface AppContextType {
@@ -23,6 +23,12 @@ interface AppContextType {
   offices: Office[];
   createNewOffice: (name: string) => void;
   updateExistingOffice: (id: string, name: string) => void;
+  serviceReports: ServiceReport[];
+  createServiceReport: (report: Omit<ServiceReport, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ServiceReport | null>;
+  updateServiceReport: (id: string, updates: Partial<ServiceReport>) => Promise<void>;
+  deleteServiceReport: (id: string) => Promise<void>;
+  getNextReportNumber: () => string;
+  markReportPrinted: (id: string) => Promise<void>;
   categories: typeof mockCategories;
   authError: string | null;
   theme: 'light' | 'dark';
@@ -37,6 +43,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [assets, setAssets] = useState<Asset[]>(isSupabaseConfigured ? [] : mockAssets);
   const [offices, setOffices] = useState<Office[]>(isSupabaseConfigured ? [] : mockOffices);
   const [users, setUsers] = useState<User[]>(isSupabaseConfigured ? [] : mockUsers);
+  const [serviceReports, setServiceReports] = useState<ServiceReport[]>(() => {
+    try {
+      const saved = localStorage.getItem('ict_service_reports');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return isSupabaseConfigured ? [] : mockServiceReports;
+  });
   const [authError, setAuthError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
@@ -126,6 +139,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (usersRes.data) setUsers(usersRes.data.map(mapUserFromDB));
+
+      // Fetch Service Reports
+      try {
+        const { data: reportsData, error: reportsError } = await supabase
+          .from('service_reports')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!reportsError && reportsData) {
+          const mappedReports = reportsData.map(mapServiceReportFromDB);
+          setServiceReports(mappedReports);
+          try {
+            localStorage.setItem('ict_service_reports', JSON.stringify(mappedReports));
+          } catch (e) {}
+        }
+      } catch (reportsErr) {
+        console.warn('service_reports table notice:', reportsErr);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data from server.');
@@ -139,11 +170,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const ticketsSub = supabase.channel('tickets-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, fetchData).subscribe();
       const assetsSub = supabase.channel('assets-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, fetchData).subscribe();
       const commentsSub = supabase.channel('comments-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_comments' }, fetchData).subscribe();
+      const reportsSub = supabase.channel('service-reports-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'service_reports' }, fetchData).subscribe();
       
       return () => {
         ticketsSub.unsubscribe();
         assetsSub.unsubscribe();
         commentsSub.unsubscribe();
+        reportsSub.unsubscribe();
       };
     }
   }, []);
@@ -381,11 +414,129 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const getNextReportNumber = (): string => {
+    const currentYear = new Date().getFullYear();
+    const prefix = `TSR-${currentYear}-`;
+    let maxSeq = 0;
+
+    serviceReports.forEach(r => {
+      if (r.reportNumber && r.reportNumber.startsWith(prefix)) {
+        const parts = r.reportNumber.split('-');
+        if (parts.length >= 3) {
+          const num = parseInt(parts[2], 10);
+          if (!isNaN(num) && num > maxSeq) {
+            maxSeq = num;
+          }
+        }
+      }
+    });
+
+    const nextSeq = maxSeq + 1;
+    return `${prefix}${String(nextSeq).padStart(4, '0')}`;
+  };
+
+  const createServiceReport = async (reportData: Omit<ServiceReport, 'id' | 'createdAt' | 'updatedAt'>): Promise<ServiceReport | null> => {
+    const now = new Date().toISOString();
+    const newId = 'sr_' + Math.random().toString(36).substring(2, 9);
+    const localReport: ServiceReport = {
+      ...reportData,
+      id: newId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (!isSupabaseConfigured) {
+      setServiceReports(prev => {
+        const next = [localReport, ...prev];
+        try { localStorage.setItem('ict_service_reports', JSON.stringify(next)); } catch (e) {}
+        return next;
+      });
+      toast.success(`Service Report ${localReport.reportNumber} generated.`);
+      return localReport;
+    }
+
+    try {
+      const dbPayload = mapServiceReportToDB(reportData);
+      const { data, error } = await supabase.from('service_reports').insert(dbPayload).select().single();
+      if (error) throw error;
+      const created = mapServiceReportFromDB(data);
+      setServiceReports(prev => [created, ...prev.filter(r => r.id !== created.id)]);
+      try {
+        const updatedList = [created, ...serviceReports.filter(r => r.id !== created.id)];
+        localStorage.setItem('ict_service_reports', JSON.stringify(updatedList));
+      } catch (e) {}
+      toast.success(`Service Report ${created.reportNumber} generated.`);
+      fetchData();
+      return created;
+    } catch (err: any) {
+      console.warn('Failed to save service report to Supabase, saving locally:', err);
+      setServiceReports(prev => {
+        const next = [localReport, ...prev];
+        try { localStorage.setItem('ict_service_reports', JSON.stringify(next)); } catch (e) {}
+        return next;
+      });
+      toast.success(`Service Report ${localReport.reportNumber} created locally.`);
+      return localReport;
+    }
+  };
+
+  const updateServiceReport = async (id: string, updates: Partial<ServiceReport>) => {
+    const now = new Date().toISOString();
+    setServiceReports(prev => {
+      const next = prev.map(r => r.id === id ? { ...r, ...updates, updatedAt: now } : r);
+      try { localStorage.setItem('ict_service_reports', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    if (isSupabaseConfigured && !id.startsWith('sr_')) {
+      try {
+        const dbUpdates = mapServiceReportToDB(updates);
+        const { error } = await supabase.from('service_reports').update({ ...dbUpdates, updated_at: now }).eq('id', id);
+        if (error) throw error;
+        toast.success('Service Report updated.');
+        fetchData();
+      } catch (err: any) {
+        console.error('Error updating report in DB:', err);
+        toast.error('Failed to update service report on server.');
+      }
+    } else {
+      toast.success('Service Report updated.');
+    }
+  };
+
+  const deleteServiceReport = async (id: string) => {
+    setServiceReports(prev => {
+      const next = prev.filter(r => r.id !== id);
+      try { localStorage.setItem('ict_service_reports', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    if (isSupabaseConfigured && !id.startsWith('sr_')) {
+      try {
+        const { error } = await supabase.from('service_reports').delete().eq('id', id);
+        if (error) throw error;
+        toast.success('Service Report deleted.');
+        fetchData();
+      } catch (err: any) {
+        console.error('Error deleting report from DB:', err);
+        toast.error('Failed to delete report on server.');
+      }
+    } else {
+      toast.success('Service Report deleted.');
+    }
+  };
+
+  const markReportPrinted = async (id: string) => {
+    const now = new Date().toISOString();
+    await updateServiceReport(id, { printedAt: now, reportStatus: 'Reviewed' });
+  };
+
   return (
     <AppContext.Provider value={{
       currentUser, login, logout, tickets, createNewTicket, changeTicketStatus, updateTicketPriority, addComment, updateRecommendation,
-      users, updateUserRole, assets, createNewAsset, updateExistingAsset, offices, createNewOffice, updateExistingOffice, categories: mockCategories, authError,
-      theme, toggleTheme
+      users, updateUserRole, assets, createNewAsset, updateExistingAsset, offices, createNewOffice, updateExistingOffice,
+      serviceReports, createServiceReport, updateServiceReport, deleteServiceReport, getNextReportNumber, markReportPrinted,
+      categories: mockCategories, authError, theme, toggleTheme
     }}>
       {children}
     </AppContext.Provider>
