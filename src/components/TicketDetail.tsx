@@ -343,26 +343,35 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                   )}
               </div>
               
-              {ticket.status !== 'CLOSED' && (
-                  <div className="p-6 border-t border-border bg-bg/50">
-                      <form onSubmit={handleAddComment} className="flex gap-3 relative">
-                          <input
-                              type="text"
-                              value={newCommentText}
-                              onChange={(e) => setNewCommentText(e.target.value)}
-                              placeholder="Type a message or update..."
-                              className="flex-1 bg-surface border border-border rounded-xl pl-5 pr-14 py-3.5 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent shadow-sm"
-                          />
-                          <button 
-                              type="submit"
-                              disabled={!newCommentText.trim()}
-                              className="absolute right-2 top-2 bottom-2 bg-accent text-white px-4 rounded-lg flex items-center justify-center disabled:opacity-50 hover:opacity-90 transition-all shadow-sm active:scale-95"
-                          >
-                              <Send className="w-4 h-4" />
-                          </button>
-                      </form>
-                  </div>
-              )}
+              <div className="p-6 border-t border-border bg-bg/50">
+                  <form onSubmit={handleAddComment} className="flex gap-3 relative">
+                      <input
+                          type="text"
+                          value={newCommentText}
+                          onChange={(e) => setNewCommentText(e.target.value)}
+                          placeholder={isTicketCompleted ? `Ticket is ${ticket.status.toLowerCase()} - messaging disabled` : "Type a message or update..."}
+                          disabled={isTicketCompleted}
+                          className={`flex-1 bg-surface border border-border rounded-xl pl-5 pr-14 py-3.5 text-sm font-medium outline-none shadow-sm transition-all ${
+                              isTicketCompleted 
+                                  ? 'opacity-60 cursor-not-allowed bg-bg text-ink-muted placeholder:text-ink-muted/60' 
+                                  : 'focus:ring-2 focus:ring-accent/50 focus:border-accent'
+                          }`}
+                      />
+                      <button 
+                          type="submit"
+                          disabled={isTicketCompleted || !newCommentText.trim()}
+                          className="absolute right-2 top-2 bottom-2 bg-accent text-white px-4 rounded-lg flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-all shadow-sm active:scale-95"
+                          title={isTicketCompleted ? 'Messaging is disabled' : 'Send message'}
+                      >
+                          <Send className="w-4 h-4" />
+                      </button>
+                  </form>
+                  {isTicketCompleted && (
+                      <p className="text-[11px] text-ink-muted italic text-center mt-2.5">
+                          This ticket is {ticket.status.toLowerCase()}. Discussion and message updates are closed.
+                      </p>
+                  )}
+              </div>
           </div>
         </div>
 
@@ -447,61 +456,78 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
           <div className="bg-surface p-6 rounded-2xl shadow-sm border border-border space-y-5">
             <h3 className="text-[11px] font-bold text-ink uppercase tracking-widest">Ticket Actions</h3>
             
-            {ticket.status === 'CLOSED' ? (
+            {ticket.status === 'CLOSED' && (
                 <div className="px-5 py-3.5 bg-bg border border-border text-ink-muted rounded-xl text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 shadow-sm">
-                    <AlertCircle className="w-4 h-4"/> Ticket Closed
+                    <AlertCircle className="w-4 h-4 text-emerald-600"/> Ticket Closed
                 </div>
-            ) : (
-                <div className="space-y-4">
-                    {/* Admin Actions */}
-                    {currentUser?.role === 'Admin' && (
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Set Priority</label>
-                                <select 
-                                    className="w-full px-4 py-3 bg-bg border border-border rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent appearance-none cursor-pointer shadow-sm transition-all"
-                                    value={ticket.priority}
-                                    onChange={async (e) => {
-                                      const newPriority = e.target.value;
-                                      const result = await ConfirmModal.fire({
-                                        text: `Change priority to ${newPriority}?`
-                                      });
-                                      if (result.isConfirmed) {
-                                        updateTicketPriority(ticket.id, newPriority);
-                                        addComment(ticket.id, `Action: Updated ticket priority to ${newPriority}`);
-                                        Toast.fire({ icon: 'success', title: 'Priority updated' });
-                                      }
-                                    }}
-                                >
-                                    <option value="Critical">Critical</option>
-                                    <option value="High">High</option>
-                                    <option value="Medium">Medium</option>
-                                    <option value="Low">Low</option>
-                                </select>
+            )}
+
+            <div className="space-y-4">
+                {/* Admin Actions */}
+                {currentUser?.role === 'Admin' && (
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Set Priority</label>
+                            <select 
+                                disabled={isTicketCompleted}
+                                className={`w-full px-4 py-3 bg-bg border border-border rounded-xl text-sm font-medium outline-none appearance-none shadow-sm transition-all ${
+                                    isTicketCompleted 
+                                        ? 'opacity-60 cursor-not-allowed text-ink-muted bg-bg/50' 
+                                        : 'cursor-pointer focus:ring-2 focus:ring-accent/50 focus:border-accent'
+                                }`}
+                                value={ticket.priority}
+                                onChange={async (e) => {
+                                  const newPriority = e.target.value;
+                                  const result = await ConfirmModal.fire({
+                                    text: `Change priority to ${newPriority}?`
+                                  });
+                                  if (result.isConfirmed) {
+                                    updateTicketPriority(ticket.id, newPriority);
+                                    addComment(ticket.id, `Action: Updated ticket priority to ${newPriority}`);
+                                    Toast.fire({ icon: 'success', title: 'Priority updated' });
+                                  }
+                                }}
+                            >
+                                <option value="Critical">Critical</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                            {isTicketCompleted && (
+                                <p className="text-[10px] text-ink-muted italic">Priority cannot be modified on {ticket.status.toLowerCase()} tickets.</p>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Assign Technician</label>
+                            <div className="flex gap-2">
+                              <select 
+                                  disabled={isTicketCompleted}
+                                  className={`flex-1 px-4 py-3 bg-bg border border-border rounded-xl text-sm font-medium outline-none appearance-none shadow-sm transition-all ${
+                                      isTicketCompleted 
+                                          ? 'opacity-60 cursor-not-allowed text-ink-muted bg-bg/50' 
+                                          : 'cursor-pointer focus:ring-2 focus:ring-accent/50 focus:border-accent'
+                                  }`}
+                                  value={selectedAssignee}
+                                  onChange={(e) => setSelectedAssignee(e.target.value)}
+                              >
+                                  <option value="">Select Tech...</option>
+                                  {ictStaff.map(staff => {
+                                      const active = tickets.filter(t => t.assignedToId === staff.id && ['ASSIGNED', 'IN PROGRESS', 'PENDING'].includes(t.status)).length;
+                                      return <option key={staff.id} value={staff.id}>{staff.name} ({active} active)</option>;
+                                  })}
+                              </select>
+                              <button 
+                                  onClick={handleAssign}
+                                  disabled={isTicketCompleted || !selectedAssignee || selectedAssignee === ticket.assignedToId}
+                                  className="px-5 py-3 bg-ink text-surface text-[11px] uppercase tracking-widest font-bold rounded-xl shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
+                              >
+                                  {selectedAssignee && selectedAssignee === ticket.assignedToId ? 'Set' : 'Assign'}
+                              </button>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block">Assign Technician</label>
-                                <div className="flex gap-2">
-                                  <select 
-                                      className="flex-1 px-4 py-3 bg-bg border border-border rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent appearance-none cursor-pointer shadow-sm transition-all"
-                                      value={selectedAssignee}
-                                      onChange={(e) => setSelectedAssignee(e.target.value)}
-                                  >
-                                      <option value="">Select Tech...</option>
-                                      {ictStaff.map(staff => {
-                                          const active = tickets.filter(t => t.assignedToId === staff.id && ['ASSIGNED', 'IN PROGRESS', 'PENDING'].includes(t.status)).length;
-                                          return <option key={staff.id} value={staff.id}>{staff.name} ({active} active)</option>;
-                                      })}
-                                  </select>
-                                  <button 
-                                      onClick={handleAssign}
-                                      disabled={!selectedAssignee || selectedAssignee === ticket.assignedToId}
-                                      className="px-5 py-3 bg-ink text-surface text-[11px] uppercase tracking-widest font-bold rounded-xl shadow-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
-                                  >
-                                      {selectedAssignee && selectedAssignee === ticket.assignedToId ? 'Set' : 'Assign'}
-                                  </button>
-                                </div>
-                            </div>
+                            {isTicketCompleted && (
+                                <p className="text-[10px] text-ink-muted italic">Technician assignment disabled on {ticket.status.toLowerCase()} tickets.</p>
+                            )}
+                        </div>
                             {['ESCALATED', 'REFERRED', 'RESOLVED'].includes(ticket.status) && (
                                 <div className="pt-4 border-t border-border space-y-3">
                                     {ticket.status === 'ESCALATED' && (
@@ -612,7 +638,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                     )}
                     
                     {/* ICT Support Actions */}
-                    {currentUser?.role === 'ICT Support' && ticket.assignedToId === currentUser.id && (
+                    {currentUser?.role === 'ICT Support' && ticket.assignedToId === currentUser.id && ticket.status !== 'CLOSED' && (
                         <div className="flex flex-col gap-3">
                             {ticket.status === 'ASSIGNED' && (
                                 <button onClick={() => handleStatusUpdate('IN PROGRESS', 'Started work on the ticket')} className="w-full px-5 py-3.5 bg-accent text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all active:scale-95">
@@ -765,7 +791,6 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                         </div>
                     )}
                 </div>
-            )}
           </div>
 
           {/* Progress Tracker Vertical */}
