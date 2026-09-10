@@ -311,4 +311,14 @@ export interface ServiceReport {
 
 export let mockServiceReports: ServiceReport[] = [];
 
+export interface AssetHistory {
+  id: string;
+  assetId: string;
+  action: 'CREATED' | 'UPDATED' | 'AUDITED';
+  changes: string;
+  performedBy?: string;
+  performedByName?: string;
+  createdAt: string;
+}
 
+export let mockAssetHistory: AssetHistory[] = [];
