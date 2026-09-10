@@ -15,6 +15,7 @@ import { AdminDepartments } from './components/AdminDepartments';
 import { AdminAnalytics } from './components/AdminAnalytics';
 import { AdminUsers } from './components/AdminUsers';
 import { GlobalAuditLogs } from './components/GlobalAuditLogs';
+import { AdminServiceReports } from './components/AdminServiceReports';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
@@ -55,6 +56,10 @@ function MainApp() {
 
     if (currentTab === 'users' && profile?.role === 'system_admin') {
       return <AdminUsers />;
+    }
+
+    if (currentTab === 'service_reports' && profile?.role === 'system_admin') {
+      return <AdminServiceReports onViewTicket={(ticketId) => { setSelectedTicketId(ticketId); setCurrentTab('tickets'); }} />;
     }
 
     if (currentTab === 'audit_logs' && profile?.role === 'system_admin') {
