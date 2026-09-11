@@ -836,21 +836,27 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             }`}
           >
             {/* LGU Letterhead */}
-            <div className="relative pb-2.5 mb-2.5 border-b-2 border-black flex items-center justify-center">
-              <div className="flex items-center justify-center gap-4">
+            <div className="pb-2.5 mb-2.5 border-b-2 border-black text-center">
+              <div className="relative inline-block text-center max-w-full">
+                {/* Seal positioned at the left edge of INFORMATION */}
                 <img 
                   src="/LGU_LOGO1.png" 
                   alt="LGU Malungon Seal" 
-                  className="w-16 h-16 object-contain shrink-0"
+                  className="w-16 h-16 object-contain absolute left-0 top-0.5"
+                  style={{ width: '64px', height: '64px' }}
                 />
-                <div className="text-center space-y-0.5">
-                  <div className="text-[11px] font-sans font-semibold text-gray-800 leading-tight">Republic of the Philippines</div>
-                  <div className="text-[11px] font-sans font-semibold text-gray-800 leading-tight">Province of Sarangani</div>
-                  <div className="text-[12.5px] font-sans font-black text-black leading-tight">Municipality of Malungon</div>
-                  <div className="text-[11px] font-sans font-semibold text-gray-800 leading-tight">Office of the Municipal Mayor</div>
-                  <div className="text-[12px] font-sans font-black uppercase text-black pt-0.5 leading-tight tracking-wide">
-                    Information & Communications Technology (ICT) Section
-                  </div>
+
+                {/* 4 Centered Lines */}
+                <div className="space-y-0.5 mb-1.5 px-20">
+                  <div className="text-[11.5px] font-sans font-medium text-gray-800 leading-tight">Republic of the Philippines</div>
+                  <div className="text-[11.5px] font-sans font-medium text-gray-800 leading-tight">Province of Sarangani</div>
+                  <div className="text-[13px] font-sans font-bold text-black leading-tight">Municipality of Malungon</div>
+                  <div className="text-[11.5px] font-sans font-medium text-gray-800 leading-tight">Office of the Municipal Mayor</div>
+                </div>
+
+                {/* Line 5: INFORMATION & COMMUNICATIONS TECHNOLOGY (ICT) SECTION */}
+                <div className="text-[13px] font-sans font-black uppercase text-black pt-1 leading-tight tracking-wider">
+                  Information & Communications Technology (ICT) Section
                 </div>
               </div>
             </div>
@@ -934,27 +940,19 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </table>
             </div>
 
-            {/* SECTION III: REPORTED PROBLEM & DIAGNOSIS */}
+            {/* SECTION III: REPORTED ISSUE & DIAGNOSIS */}
             <div className="mb-3.5">
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 III. Reported Issue & Diagnosis
               </div>
               <div className="border border-black text-[11px] font-sans">
                 <div className="p-2 border-b border-black">
-                  <div><strong className="font-bold">Subject / Symptom:</strong> {diagnosis}</div>
-                  {ticket.description && (
-                    <div className="text-gray-700 italic border-t border-gray-200 pt-1 mt-1 leading-normal">
-                      "{ticket.description}"
-                    </div>
-                  )}
-                </div>
-                <div className="p-2 border-b border-black">
-                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">A. Diagnostic Findings & Root Cause:</div>
-                  <p className="whitespace-pre-wrap leading-relaxed">{technicalFindings || 'No diagnostic findings entered.'}</p>
+                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">A. Subject / Symptom:</div>
+                  <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{diagnosis || ticket.subject}</p>
                 </div>
                 <div className="p-2">
-                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">B. Troubleshooting Conducted & Action Taken:</div>
-                  <p className="whitespace-pre-wrap leading-relaxed">{actionTaken || 'Standard troubleshooting performed.'}</p>
+                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">B. Diagnostic Findings & Root Cause:</div>
+                  <p className="whitespace-pre-wrap leading-relaxed">{technicalFindings || 'No diagnostic findings entered.'}</p>
                 </div>
               </div>
             </div>
@@ -1030,7 +1028,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             {/* Print Footer */}
             <div className="mt-5 pt-2 border-t border-gray-300 flex justify-between items-center text-[8px] font-sans text-gray-500">
               <span>LGU Malungon ICT Help Desk System • Official Technical Documentation</span>
-              <span>Municipal Government of Malungon</span>
               <span>Generated on: {format(new Date(), 'yyyy-MM-dd HH:mm:ss')} • Page 1 of 1</span>
             </div>
 
