@@ -11,6 +11,7 @@ export interface User {
 export interface Office {
   id: string;
   name: string;
+  officeHead?: string;
   acronym?: string;
   email?: string;
 }
@@ -71,55 +72,57 @@ export interface Ticket {
 }
 
 export let mockOffices: Office[] = [
-  { id: 'off_1', name: 'Balay Silangan Reformatory Center', acronym: 'Balay Silangan', email: '' },
-  { id: 'off_2', name: 'Comelec Malungon', acronym: 'Comelec', email: '' },
-  { id: 'off_3', name: 'General Services Office', acronym: 'GSO', email: 'gso@malungon.gov.ph' },
-  { id: 'off_4', name: 'LIGA ng mga Barangay', acronym: 'LIGA', email: 'liga@malungon.gov.ph' },
-  { id: 'off_5', name: 'Local Youth Development Office', acronym: 'LYDO', email: 'lydo@malungon.gov.ph' },
-  { id: 'off_6', name: 'Municipal Accounting Office', acronym: 'MACCO', email: 'accounting@malungon.gov.ph' },
-  { id: 'off_7', name: 'Municipal Assessor\'s Office', acronym: 'MASSO', email: 'assessor@malungon.gov.ph' },
-  { id: 'off_8', name: 'Municipal Budget Office', acronym: 'MBO', email: 'budget@malungon.gov.ph' },
-  { id: 'off_9', name: 'Municipal Civil Registrar', acronym: 'MCR', email: 'registrar@malungon.gov.ph' },
-  { id: 'off_10', name: 'Municipal Disaster Risk Reduction & Management Office', acronym: 'MDRRMO', email: 'ldrrmo@malungon.gov.ph' },
-  { id: 'off_11', name: 'Mayor’s Office – Economic Enterprise Management Section', acronym: 'MEEDO', email: 'market@malungon.gov.ph' },
-  { id: 'off_12', name: 'Municipal Environment and Natural Resources Office', acronym: 'MENRO', email: 'menro@malungon.gov.ph' },
-  { id: 'off_13', name: 'Municipal Engineering Office', acronym: 'MEO', email: 'engineer@malungon.gov.ph' },
-  { id: 'off_14', name: 'Municipal Health Office', acronym: 'MHO', email: 'health@malungon.gov.ph' },
-  { id: 'off_15', name: 'Municipal Information Office', acronym: 'MIO', email: 'info@malungon.gov.ph' },
-  { id: 'off_16', name: 'Municipal Local Government Operations Office', acronym: 'MLGOO', email: 'mlgoo@malungon.gov.ph' },
-  { id: 'off_17', name: 'Mayors Office - Administrative Section', acronym: 'MO-Admin', email: 'mo_admin@malungon.gov.ph' },
-  { id: 'off_18', name: 'Mayor\'s Office - Bids and Awards Committee', acronym: 'MO-BAC', email: 'bac@malungon.gov.ph' },
-  { id: 'off_19', name: 'Mayor\'s Office - Bureau of Internal Revenue', acronym: 'MO-BIR', email: 'bir@malungon.gov.ph' },
-  { id: 'off_20', name: 'MO-Business Permits and Licenses Section', acronym: 'MO-BPLS', email: 'permits@malungon.gov.ph' },
-  { id: 'off_21', name: 'Mayor\'s Office - Civil Security Unit', acronym: 'MO-CSU', email: 'csu@malungon.gov.ph' },
-  { id: 'off_22', name: 'Mayor\'s Office - Executive Section', acronym: 'MO-Exec', email: '' },
-  { id: 'off_23', name: 'Mayor\'s Office - PESO', acronym: 'MO-PESO', email: 'peso@malungon.gov.ph' },
-  { id: 'off_24', name: 'Mayors Office - Personnel Section', acronym: 'MO-Personnel', email: 'hr@malungon.gov.ph' },
-  { id: 'off_25', name: 'Mayor\'s Office - Sports and Youth Hall Section', acronym: 'MO-Sports', email: '' },
-  { id: 'off_26', name: 'Municipal Planning & Development Office', acronym: 'MPDO', email: 'planning@malungon.gov.ph' },
-  { id: 'off_27', name: 'Municipal Social Welfare & Development Office', acronym: 'MSWDO', email: 'mswdo@malungon.gov.ph' },
-  { id: 'off_28', name: 'Municipal Treasurer\'s Office', acronym: 'MTO', email: 'treasurer@malungon.gov.ph' },
-  { id: 'off_29', name: 'Mayor\'s Office - Motorpool', acronym: 'Motorpool', email: '' },
-  { id: 'off_30', name: 'Mayor\'s Office - Nutrition Section', acronym: 'Nutrition', email: 'nutrition@malungon.gov.ph' },
-  { id: 'off_31', name: 'Office of the Municipal Agriculturist', acronym: 'OMAG', email: 'agri@malungon.gov.ph' },
-  { id: 'off_32', name: 'People\'s Law Enforcement Board', acronym: 'PLEB', email: '' },
-  { id: 'off_33', name: 'Sangguniang Bayan', acronym: 'SB', email: 'sb@malungon.gov.ph' },
-  { id: 'off_34', name: 'Sangguniang Kabataan', acronym: 'SK', email: '' },
-  { id: 'off_35', name: 'Mayor\'s Office - Tourism Section', acronym: 'Tourism', email: '' },
-  { id: 'off_36', name: 'Vice Mayor\'s Office', acronym: 'VM', email: '' }
+  { id: 'off_1', name: 'Balay Silangan Reformatory Center', officeHead: 'Dollar Yen Son', acronym: 'Balay Silangan', email: '' },
+  { id: 'off_2', name: 'Comelec Malungon', officeHead: 'Jose Alvin Ruiz Quiñanola', acronym: 'Comelec', email: '' },
+  { id: 'off_3', name: 'General Services Office', officeHead: 'Maria Teresa Tapil', acronym: 'GSO', email: 'gso@malungon.gov.ph' },
+  { id: 'off_4', name: 'LIGA ng mga Barangay', officeHead: 'Sweetly Mae G. Laguerder', acronym: 'LIGA', email: 'liga@malungon.gov.ph' },
+  { id: 'off_5', name: 'Local Youth Development Office', officeHead: 'Shiela Manocay', acronym: 'LYDO', email: 'lydo@malungon.gov.ph' },
+  { id: 'off_6', name: 'Municipal Accounting Office', officeHead: 'Immanuel Figueroa', acronym: 'MACCO', email: 'accounting@malungon.gov.ph' },
+  { id: 'off_7', name: 'Municipal Assessor\'s Office', officeHead: 'Gladys Maybel D. Yap', acronym: 'MASSO', email: 'assessor@malungon.gov.ph' },
+  { id: 'off_8', name: 'Municipal Budget Office', officeHead: 'Beverly Pactes', acronym: 'MBO', email: 'budget@malungon.gov.ph' },
+  { id: 'off_9', name: 'Municipal Civil Registrar', officeHead: 'Arlyne G. Del Rosario', acronym: 'MCR', email: 'registrar@malungon.gov.ph' },
+  { id: 'off_10', name: 'Municipal Disaster Risk Reduction & Management Office', officeHead: 'Jessie Dela Cruz', acronym: 'MDRRMO', email: 'ldrrmo@malungon.gov.ph' },
+  { id: 'off_11', name: 'Mayor’s Office – Economic Enterprise Management Section', officeHead: 'Marife Cachuela', acronym: 'MEEDO', email: 'market@malungon.gov.ph' },
+  { id: 'off_12', name: 'Municipal Environment and Natural Resources Office', officeHead: 'Perlyn Jean Mestiola', acronym: 'MENRO', email: 'menro@malungon.gov.ph' },
+  { id: 'off_13', name: 'Municipal Engineering Office', officeHead: 'Mark Anthony Zagales', acronym: 'MEO', email: 'engineer@malungon.gov.ph' },
+  { id: 'off_14', name: 'Municipal Health Office', officeHead: 'Rafaida G. Hernandez', acronym: 'MHO', email: 'health@malungon.gov.ph' },
+  { id: 'off_15', name: 'Municipal Information Office', officeHead: 'Kenneth Jones Alforque', acronym: 'MIO', email: 'info@malungon.gov.ph' },
+  { id: 'off_16', name: 'Municipal Local Government Operations Office', officeHead: 'Zorayda Labus', acronym: 'MLGOO', email: 'mlgoo@malungon.gov.ph' },
+  { id: 'off_17', name: 'Mayors Office - Administrative Section', officeHead: 'Bienvenida Llego', acronym: 'MO-Admin', email: 'mo_admin@malungon.gov.ph' },
+  { id: 'off_18', name: 'Mayor\'s Office - Bids and Awards Committee', officeHead: 'Maria Teresa Tapil', acronym: 'MO-BAC', email: 'bac@malungon.gov.ph' },
+  { id: 'off_19', name: 'Mayor\'s Office - Bureau of Internal Revenue', officeHead: 'Ebnil Sarail', acronym: 'MO-BIR', email: 'bir@malungon.gov.ph' },
+  { id: 'off_20', name: 'MO-Business Permits and Licenses Section', officeHead: 'Trinidad Quimado', acronym: 'MO-BPLS', email: 'permits@malungon.gov.ph' },
+  { id: 'off_21', name: 'MO-Civil Security Unit', officeHead: 'Ervic Enojas', acronym: 'MO-CSU', email: 'csu@malungon.gov.ph' },
+  { id: 'off_22', name: 'Mayor\'s Office - Executive Section', officeHead: 'Cristina Constantino-La Paz', acronym: 'MO-Exec', email: '' },
+  { id: 'off_23', name: 'Mayor\'s Office - PESO', officeHead: 'Cristina Constantino-La Paz', acronym: 'MO-PESO', email: 'peso@malungon.gov.ph' },
+  { id: 'off_24', name: 'Mayors Office - Personnel Section', officeHead: 'John Michael Fernandez', acronym: 'MO-Personnel', email: 'hr@malungon.gov.ph' },
+  { id: 'off_25', name: 'Mayor\'s Office - Sports and Youth Hall Section', officeHead: 'Pronie Lukeña', acronym: 'MO-Sports', email: '' },
+  { id: 'off_26', name: 'Municipal Planning & Development Office', officeHead: 'Richard Saranillo', acronym: 'MPDO', email: 'planning@malungon.gov.ph' },
+  { id: 'off_27', name: 'Municipal Social Welfare & Development Office', officeHead: 'Ruth Arangote', acronym: 'MSWDO', email: 'mswdo@malungon.gov.ph' },
+  { id: 'off_28', name: 'Municipal Treasurer\'s Office', officeHead: 'Leo Operario', acronym: 'MTO', email: 'treasurer@malungon.gov.ph' },
+  { id: 'off_29', name: 'Mayor\'s Office - Motorpool', officeHead: 'Hamilton Dewata', acronym: 'Motorpool', email: '' },
+  { id: 'off_30', name: 'Mayor\'s Office - Nutrition Section', officeHead: 'Roselyn D. Constantino', acronym: 'Nutrition', email: 'nutrition@malungon.gov.ph' },
+  { id: 'off_31', name: 'Office of the Municipal Agriculturist', officeHead: 'King Lloyd Abelado', acronym: 'OMAG', email: 'agri@malungon.gov.ph' },
+  { id: 'off_32', name: 'People\'s Law Enforcement Board', officeHead: 'Benjamin Santos', acronym: 'PLEB', email: '' },
+  { id: 'off_33', name: 'Sangguniang Bayan', officeHead: 'Jonathan Alfaro', acronym: 'SB', email: 'sb@malungon.gov.ph' },
+  { id: 'off_34', name: 'Sangguniang Kabataan', officeHead: 'Jereco Tanduyan', acronym: 'SK', email: '' },
+  { id: 'off_35', name: 'Mayor\'s Office - Tourism Section', officeHead: 'Cristina Constantino-La Paz', acronym: 'Tourism', email: '' },
+  { id: 'off_36', name: 'Vice Mayor\'s Office', officeHead: 'Atty. Maria Theresa D. Constantino', acronym: 'VM', email: '' }
 ];
 
-export function addOffice(name: string) {
+export function addOffice(data: { name: string; officeHead?: string; acronym?: string; email?: string } | string) {
+  const officeData = typeof data === 'string' ? { name: data } : data;
   const newOffice: Office = {
     id: 'off_' + Math.random().toString(36).substr(2, 9),
-    name
+    ...officeData
   };
   mockOffices = [...mockOffices, newOffice];
   return newOffice;
 }
 
-export function updateOffice(id: string, name: string) {
-  mockOffices = mockOffices.map(o => o.id === id ? { ...o, name } : o);
+export function updateOffice(id: string, updates: Partial<Office> | string) {
+  const updateData = typeof updates === 'string' ? { name: updates } : updates;
+  mockOffices = mockOffices.map(o => o.id === id ? { ...o, ...updateData } : o);
 }
 
 export const mockUsers: User[] = [

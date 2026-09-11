@@ -22,8 +22,8 @@ interface AppContextType {
   createNewAsset: (asset: any) => void;
   updateExistingAsset: (id: string, updates: any) => void;
   offices: Office[];
-  createNewOffice: (name: string) => void;
-  updateExistingOffice: (id: string, name: string) => void;
+  createNewOffice: (data: { name: string; officeHead?: string; acronym?: string; email?: string } | string) => Promise<void>;
+  updateExistingOffice: (id: string, updates: Partial<Office> | string) => Promise<void>;
   serviceReports: ServiceReport[];
   createServiceReport: (report: Omit<ServiceReport, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ServiceReport | null>;
   updateServiceReport: (id: string, updates: Partial<ServiceReport>) => Promise<void>;
@@ -107,6 +107,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           const officesToInsert = mockOffices.map(o => ({
             name: o.name,
+            office_head: o.officeHead || null,
             acronym: o.acronym || null,
             email: o.email || null
           }));
@@ -565,15 +566,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const createNewOffice = async (name: string) => {
+  const createNewOffice = async (data: { name: string; officeHead?: string; acronym?: string; email?: string } | string) => {
+    const officeData = typeof data === 'string' ? { name: data } : data;
     if (!isSupabaseConfigured) {
-      const newOffice = { id: 'off_' + Math.random().toString(36).substring(2, 9), name };
+      const newOffice: Office = {
+        id: 'off_' + Math.random().toString(36).substring(2, 9),
+        name: officeData.name,
+        officeHead: officeData.officeHead,
+        acronym: officeData.acronym,
+        email: officeData.email
+      };
       setOffices(prev => [...prev, newOffice]);
       toast.success('Department created locally.');
       return;
     }
     try {
-      const { error } = await supabase.from('departments').insert({ name });
+      const dbPayload = {
+        name: officeData.name,
+        office_head: officeData.officeHead || null,
+        acronym: officeData.acronym || null,
+        email: officeData.email || null
+      };
+      const { error } = await supabase.from('departments').insert(dbPayload);
       if (error) throw error;
       fetchData();
     } catch (error: any) {
@@ -581,14 +595,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
-  const updateExistingOffice = async (id: string, name: string) => {
+  const updateExistingOffice = async (id: string, updates: Partial<Office> | string) => {
+    const updateData: Partial<Office> = typeof updates === 'string' ? { name: updates } : updates;
     if (!isSupabaseConfigured) {
-      setOffices(prev => prev.map(o => o.id === id ? { ...o, name } : o));
+      setOffices(prev => prev.map(o => o.id === id ? { ...o, ...updateData } : o));
       toast.success('Department updated locally.');
       return;
     }
     try {
-      const { error } = await supabase.from('departments').update({ name }).eq('id', id);
+      const dbUpdates: Record<string, any> = {};
+      if (updateData.name !== undefined) dbUpdates.name = updateData.name;
+      if (updateData.officeHead !== undefined) dbUpdates.office_head = updateData.officeHead || null;
+      if (updateData.acronym !== undefined) dbUpdates.acronym = updateData.acronym || null;
+      if (updateData.email !== undefined) dbUpdates.email = updateData.email || null;
+
+      const { error } = await supabase.from('departments').update(dbUpdates).eq('id', id);
       if (error) throw error;
       fetchData();
     } catch (error: any) {
