@@ -41,6 +41,103 @@ const RECOMMENDATION_PRESETS = [
   'Recommend connection to AVR/UPS and quarterly preventive maintenance.'
 ];
 
+export interface ActionLogEntry {
+  timestamp: string;
+  action: string;
+}
+
+export function getActionLogEntries(
+  ticket: Ticket,
+  assigneeName?: string,
+  finalStatusText?: string
+): ActionLogEntry[] {
+  const entries: { time: Date; text: string }[] = [];
+
+  // 1. Ticket submitted
+  if (ticket.createdAt) {
+    entries.push({
+      time: new Date(ticket.createdAt),
+      text: 'Ticket submitted and logged into ICT Helpdesk system'
+    });
+  }
+
+  // 2. Assigned
+  const assignedHistory = ticket.statusHistory?.find(h => h.status === 'ASSIGNED');
+  const assignedComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('assigned'));
+  if (ticket.assignedToId || assigneeName) {
+    const assignedTime = assignedHistory?.timestamp || assignedComment?.createdAt || ticket.createdAt;
+    entries.push({
+      time: new Date(assignedTime),
+      text: `Assigned ticket to ${assigneeName || 'ICT Technical Personnel'}`
+    });
+  }
+
+  // 3. In Progress
+  const inProgressHistory = ticket.statusHistory?.find(h => h.status === 'IN PROGRESS');
+  const inProgressComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('in progress'));
+  if (inProgressHistory || inProgressComment || ticket.status === 'IN PROGRESS' || ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') {
+    const progTime = inProgressHistory?.timestamp || inProgressComment?.createdAt || ticket.updatedAt || ticket.createdAt;
+    entries.push({
+      time: new Date(progTime),
+      text: 'Started work on the ticket'
+    });
+  }
+
+  // 4. Ticket Comments / System Activities
+  if (ticket.comments && ticket.comments.length > 0) {
+    ticket.comments.forEach(c => {
+      if (!c.text) return;
+      if (c.text.startsWith('System: Status changed to')) return;
+      if (c.text.startsWith('{') && c.text.endsWith('}')) return;
+      entries.push({
+        time: new Date(c.createdAt),
+        text: c.text
+      });
+    });
+  }
+
+  // 5. Resolved / Repaired
+  const resolvedHistory = ticket.statusHistory?.find(h => h.status === 'RESOLVED');
+  const resolvedComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('resolved') || c.text?.toLowerCase().includes('repaired'));
+  if (resolvedHistory || resolvedComment || ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') {
+    const resTime = resolvedHistory?.timestamp || resolvedComment?.createdAt || ticket.updatedAt;
+    entries.push({
+      time: new Date(resTime),
+      text: `Marked ticket as ${finalStatusText || 'Repaired / Resolved'}`
+    });
+  }
+
+  // 6. Closed
+  const closedHistory = ticket.statusHistory?.find(h => h.status === 'CLOSED');
+  const closedComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('closed'));
+  if (closedHistory || closedComment || ticket.status === 'CLOSED') {
+    const closeTime = closedHistory?.timestamp || closedComment?.createdAt || ticket.updatedAt;
+    entries.push({
+      time: new Date(closeTime),
+      text: 'Confirmed resolution and officially closed ticket'
+    });
+  }
+
+  // Sort chronologically
+  entries.sort((a, b) => a.time.getTime() - b.time.getTime());
+
+  // Deduplicate entries with identical timestamp and text
+  const seen = new Set<string>();
+  const result: ActionLogEntry[] = [];
+  for (const item of entries) {
+    const key = `${format(item.time, 'yyyy-MM-dd HH:mm')} - ${item.text}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push({
+        timestamp: format(item.time, 'MMM dd, yyyy • hh:mm a'),
+        action: item.text
+      });
+    }
+  }
+
+  return result;
+}
+
 export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }: ServiceReportModalProps) {
   const {
     serviceReports,
@@ -82,10 +179,14 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   const [ictHeadName, setIctHeadName] = useState('Engr. Kenneth Jones D. Alforque');
   const [officeHeadName, setOfficeHeadName] = useState('');
   const [reportStatus, setReportStatus] = useState<ServiceReportStatus>('Generated');
+  const [actionLogText, setActionLogText] = useState('');
 
   // Initialize or reset form values
   useEffect(() => {
     if (!isOpen) return;
+
+    const defaultLogs = getActionLogEntries(ticket, assignee?.name, existingReport?.finalStatus || 'Resolved');
+    const defaultLogString = defaultLogs.map(e => `${e.timestamp} : ${e.action}`).join('\n');
 
     if (existingReport) {
       setReportNumber(existingReport.reportNumber);
@@ -98,6 +199,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setIctHeadName(existingReport.ictHeadName || 'Engr. Kenneth Jones D. Alforque');
       setOfficeHeadName(existingReport.officeHeadName || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
       setReportStatus(existingReport.reportStatus);
+      setActionLogText(defaultLogString);
       setActiveTab('preview');
     } else {
       // Auto prefill from ticket and assets
@@ -125,6 +227,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setIctHeadName('Engr. Kenneth Jones D. Alforque');
       setOfficeHeadName(department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative');
       setReportStatus('Generated');
+      setActionLogText(defaultLogString);
       setActiveTab('form');
     }
   }, [isOpen, ticket.id, existingReport?.id]);
@@ -188,19 +291,11 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     }
   };
 
-  const getPageSizeRule = (size: PaperSize) => {
-    switch (size) {
-      case 'letter':
-        return '@page { size: letter portrait; margin: 5mm 8mm; }';
-      case 'legal':
-        return '@page { size: legal portrait; margin: 8mm 12mm; }';
-      case 'a4':
-      default:
-        return '@page { size: A4 portrait; margin: 6mm 10mm; }';
-    }
+  const getPageSizeRule = (_size?: PaperSize) => {
+    return '@page { size: auto; margin: 8mm 12mm; }';
   };
 
-  // Robust, single-page isolated-iframe printing for A4, Letter, and Legal
+  // Robust, single-page isolated-iframe printing for universal paper sizes
   const handlePrint = async () => {
     if (existingReport) {
       await markReportPrinted(existingReport.id);
@@ -237,7 +332,10 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           <title>ICT Technical Service Report - ${reportNumber || ticket.ticketNumber}</title>
           ${styles}
           <style>
-            ${getPageSizeRule(paperSize)}
+            @page {
+              size: auto;
+              margin: 8mm 12mm;
+            }
             *, *:before, *:after {
               box-sizing: border-box !important;
               -webkit-print-color-adjust: exact !important;
@@ -278,9 +376,9 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             }
             th, td {
               border: 1px solid #000000 !important;
-              padding: 3px 6px !important;
-              font-size: 10.5px !important;
-              line-height: 1.25 !important;
+              padding: 5px 8px !important;
+              font-size: 11px !important;
+              line-height: 1.35 !important;
             }
             tr {
               page-break-inside: avoid !important;
@@ -298,6 +396,9 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             }
             .border-black {
               border-color: #000000 !important;
+            }
+            .text-red-600 {
+              color: #dc2626 !important;
             }
           </style>
         </head>
@@ -320,13 +421,26 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     }, 350);
   };
 
+  const displayedActionLog: ActionLogEntry[] = actionLogText.trim()
+    ? actionLogText.split('\n').filter(l => l.trim()).map(line => {
+        const parts = line.split(' : ');
+        if (parts.length >= 2) {
+          return { timestamp: parts[0].trim(), action: parts.slice(1).join(' : ').trim() };
+        }
+        return { timestamp: format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a'), action: line.trim() };
+      })
+    : getActionLogEntries(ticket, assignee?.name, finalStatus);
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 print:p-0 print:bg-white print:static">
       
       {/* Fallback Print Specific CSS Rules */}
       <style>{`
         @media print {
-          ${getPageSizeRule(paperSize)}
+          @page {
+            size: auto;
+            margin: 8mm 12mm;
+          }
           html, body {
             height: 100% !important;
             overflow: hidden !important;
@@ -356,6 +470,9 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             page-break-after: avoid !important;
             break-after: avoid !important;
           }
+          .text-red-600 {
+            color: #dc2626 !important;
+          }
         }
       `}</style>
 
@@ -383,41 +500,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Paper Size Selector */}
-            <div className="flex items-center gap-1 bg-surface border border-border rounded-xl p-1 shadow-sm">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-ink-muted px-1.5 hidden sm:inline">Size:</span>
-              <button
-                type="button"
-                onClick={() => setPaperSize('a4')}
-                className={`px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  paperSize === 'a4' ? 'bg-accent text-white shadow-sm' : 'text-ink-muted hover:text-ink hover:bg-bg'
-                }`}
-                title="A4 (210 x 297 mm)"
-              >
-                A4
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaperSize('letter')}
-                className={`px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  paperSize === 'letter' ? 'bg-accent text-white shadow-sm' : 'text-ink-muted hover:text-ink hover:bg-bg'
-                }`}
-                title="Short / Letter (8.5 x 11 in)"
-              >
-                Short/Letter
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaperSize('legal')}
-                className={`px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  paperSize === 'legal' ? 'bg-accent text-white shadow-sm' : 'text-ink-muted hover:text-ink hover:bg-bg'
-                }`}
-                title="Legal / Long (8.5 x 13/14 in)"
-              >
-                Legal
-              </button>
-            </div>
-
             {/* View Switcher Tabs */}
             <div className="flex bg-surface border border-border rounded-xl p-1 shadow-sm">
               <button
@@ -616,6 +698,33 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 />
               </div>
 
+              {/* Field: IV. Action Log & Activity Timeline */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted">
+                    IV. Activity Timeline & Action Log (Timestamped List)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const logs = getActionLogEntries(ticket, assignee?.name, finalStatus);
+                      setActionLogText(logs.map(e => `${e.timestamp} : ${e.action}`).join('\n'));
+                    }}
+                    className="text-[10px] text-accent font-bold uppercase tracking-wider hover:underline"
+                  >
+                    Reset to Default Timeline
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={actionLogText}
+                  onChange={e => setActionLogText(e.target.value)}
+                  className="w-full p-3.5 bg-bg border border-border rounded-xl text-xs font-mono text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm"
+                  placeholder="MMM dd, yyyy • hh:mm a : Action..."
+                />
+                <p className="text-[10px] text-ink-muted mt-1">Format: <code className="font-mono text-ink">Date/Time : Action Description</code></p>
+              </div>
+
               {/* Field: ICT Recommendation with quick presets */}
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -719,29 +828,27 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             </form>
           )}
 
-          {/* TAB 2: OFFICIAL PRINTOUT PREVIEW & PRINT TARGET (Optimized for Single-Page on A4, Letter, Legal) */}
+          {/* TAB 2: OFFICIAL PRINTOUT PREVIEW & PRINT TARGET (Optimized for Single-Page on Universal Sizes) */}
           <div 
             id="official-tsr-printout" 
-            className={`bg-white text-black p-5 sm:p-7 mx-auto border border-gray-300 shadow-lg rounded-sm font-serif print:shadow-none print:border-none print:p-0 print:m-0 ${
-              paperSize === 'letter' ? 'max-w-[760px]' : (paperSize === 'legal' ? 'max-w-[780px]' : 'max-w-[780px]')
-            } ${
+            className={`bg-white text-black p-6 sm:p-8 mx-auto border border-gray-300 shadow-lg rounded-sm font-serif print:shadow-none print:border-none print:p-0 print:m-0 max-w-[800px] ${
               activeTab === 'preview' ? 'block' : 'hidden print:block'
             }`}
           >
             {/* LGU Letterhead */}
-            <div className="text-center relative pb-2 border-b-2 border-black">
-              <div className="flex items-center justify-center gap-3">
+            <div className="relative pb-2.5 mb-2.5 border-b-2 border-black flex items-center justify-center">
+              <div className="flex items-center justify-center gap-4">
                 <img 
                   src="/LGU_LOGO1.png" 
                   alt="LGU Malungon Seal" 
-                  className="w-14 h-14 object-contain absolute left-1 top-0 print:left-0"
+                  className="w-16 h-16 object-contain shrink-0"
                 />
-                <div className="space-y-0.5">
-                  <div className="text-[10px] font-sans font-bold tracking-wider uppercase text-gray-700 leading-tight">Republic of the Philippines</div>
-                  <div className="text-[10px] font-sans font-bold tracking-wider uppercase text-gray-700 leading-tight">Province of Sarangani</div>
-                  <div className="text-[11px] font-sans font-black tracking-wider uppercase text-black leading-tight">Municipality of Malungon</div>
-                  <div className="text-[10px] font-sans font-bold tracking-wider uppercase text-gray-800 leading-tight">Office of the Municipal Mayor</div>
-                  <div className="text-[11px] font-sans font-black tracking-wider uppercase text-black pt-0.5 leading-tight">
+                <div className="text-center space-y-0.5">
+                  <div className="text-[11px] font-sans font-semibold text-gray-800 leading-tight">Republic of the Philippines</div>
+                  <div className="text-[11px] font-sans font-semibold text-gray-800 leading-tight">Province of Sarangani</div>
+                  <div className="text-[12.5px] font-sans font-black text-black leading-tight">Municipality of Malungon</div>
+                  <div className="text-[11px] font-sans font-semibold text-gray-800 leading-tight">Office of the Municipal Mayor</div>
+                  <div className="text-[12px] font-sans font-black uppercase text-black pt-0.5 leading-tight tracking-wide">
                     Information & Communications Technology (ICT) Section
                   </div>
                 </div>
@@ -749,80 +856,76 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             </div>
 
             {/* Document Title & Reference Bar */}
-            <div className="text-center my-2.5">
+            <div className="text-center my-3">
               <h1 className="text-base font-sans font-black uppercase tracking-wider text-black border-y border-black py-0.5 inline-block px-8">
                 ICT TECHNICAL SERVICE REPORT
               </h1>
             </div>
 
             {/* Metadata Bar */}
-            <div className="grid grid-cols-2 text-[11px] font-sans border border-black mb-2.5 bg-gray-50 print:bg-transparent">
-              <div className="p-1.5 border-r border-black space-y-0.5">
+            <div className="grid grid-cols-2 text-[11px] font-sans border border-black mb-3.5 bg-gray-50 print:bg-transparent">
+              <div className="p-2 border-r border-black space-y-0.5">
                 <div><span className="font-bold">REPORT NO:</span> <span className="font-mono font-bold text-xs">{reportNumber || 'TSR-PENDING'}</span></div>
                 <div><span className="font-bold">DATE GENERATED:</span> {format(new Date(reportDate || new Date()), 'MMMM dd, yyyy')}</div>
               </div>
-              <div className="p-1.5 space-y-0.5">
+              <div className="p-2 space-y-0.5">
                 <div><span className="font-bold">REFERENCE TICKET NO:</span> <span className="font-mono font-bold">{ticket.ticketNumber}</span></div>
-                <div><span className="font-bold">FINAL SERVICE STATUS:</span> <span className="font-bold uppercase underline">{finalStatus}</span></div>
+                <div><span className="font-bold">FINAL SERVICE STATUS:</span> <span className="font-bold uppercase underline text-red-600 print:text-red-600">{finalStatus}</span></div>
               </div>
             </div>
 
-            {/* SECTION A: REQUESTING OFFICE DETAILS */}
-            <div className="mb-2.5">
-              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
+            {/* SECTION I: REQUEST & OFFICE INFORMATION */}
+            <div className="mb-3.5">
+              <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 I. Request & Office Information
               </div>
-              <table className="w-full text-[10.5px] font-sans border-collapse border border-black">
+              <table className="w-full text-[11px] font-sans border-collapse border border-black">
                 <tbody>
                   <tr className="border-b border-black">
-                    <td className="w-1/3 p-1 bg-gray-100 font-bold border-r border-black">Requesting Office / Dept:</td>
-                    <td className="w-2/3 p-1 font-semibold uppercase">{department?.name || 'N/A'}</td>
+                    <td className="w-1/3 p-2 bg-gray-100 font-bold border-r border-black">Requesting Office / Dept:</td>
+                    <td className="w-2/3 p-2 font-semibold uppercase">{department?.name || 'N/A'}</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">End-User / Requested By:</td>
-                    <td className="p-1">{requester?.name || 'Staff'} ({requester?.email || 'N/A'})</td>
-                  </tr>
-                  <tr className="border-b border-black">
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Date & Time Requested:</td>
-                    <td className="p-1">{format(new Date(ticket.createdAt), 'MMMM dd, yyyy • hh:mm a')}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Date & Time Requested:</td>
+                    <td className="p-2">{format(new Date(ticket.createdAt), 'MMMM dd, yyyy • hh:mm a')}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Issue Category & Priority:</td>
-                    <td className="p-1">{category?.name || 'Hardware Support'} • <span className="font-bold uppercase">{ticket.priority} Priority</span></td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Issue Category:</td>
+                    <td className="p-2 font-semibold">{category?.name || 'Hardware'}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            {/* SECTION B: EQUIPMENT / ASSET DETAILS */}
-            <div className="mb-2.5">
-              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
+            {/* SECTION II: SERVICED EQUIPMENT & PROPERTY DETAILS */}
+            <div className="mb-3.5">
+              <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 II. Serviced Equipment & Property Details
               </div>
-              <table className="w-full text-[10.5px] font-sans border-collapse border border-black">
+              <table className="w-full text-[11px] font-sans border-collapse border border-black">
                 <tbody>
                   <tr className="border-b border-black">
-                    <td className="w-1/4 p-1 bg-gray-100 font-bold border-r border-black">Equipment Type:</td>
-                    <td className="w-1/4 p-1 border-r border-black">{asset?.equipmentType || 'Computer Unit'}</td>
-                    <td className="w-1/4 p-1 bg-gray-100 font-bold border-r border-black">Brand & Model:</td>
-                    <td className="w-1/4 p-1">{asset ? `${asset.brand} ${asset.model}` : 'Standard Office Machine'}</td>
+                    <td className="w-1/4 p-2 bg-gray-100 font-bold border-r border-black">Equipment Type:</td>
+                    <td className="w-1/4 p-2 border-r border-black font-medium">{asset?.equipmentType || 'Computer Unit'}</td>
+                    <td className="w-1/4 p-2 bg-gray-100 font-bold border-r border-black">Brand & Model:</td>
+                    <td className="w-1/4 p-2 font-medium">{asset ? `${asset.brand} ${asset.model}` : 'Standard Office Machine'}</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Property / Inv. No:</td>
-                    <td className="p-1 font-mono border-r border-black">{asset?.propertyNumber || asset?.inventoryNumber || 'N/A'}</td>
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Serial Number:</td>
-                    <td className="p-1 font-mono">{asset?.serialNumber || 'N/A'}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Property / Inv. No:</td>
+                    <td className="p-2 font-mono border-r border-black">{asset?.propertyNumber || asset?.inventoryNumber || 'N/A'}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Serial Number:</td>
+                    <td className="p-2 font-mono">{asset?.serialNumber || 'N/A'}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Asset Code / Tag:</td>
-                    <td className="p-1 font-mono font-bold border-r border-black">{asset?.assetCode || 'N/A'}</td>
-                    <td className="p-1 bg-gray-100 font-bold border-r border-black">Assigned Location:</td>
-                    <td className="p-1">{asset?.exactLocation || department?.name || 'LGU Malungon Compound'}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Asset Code:</td>
+                    <td className="p-2 font-mono font-bold border-r border-black">{asset?.assetCode || 'N/A'}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Assigned to:</td>
+                    <td className="p-2 font-medium">{asset?.assignedTo || requester?.name || 'N/A'}</td>
                   </tr>
                   {(asset?.processor || asset?.memory || asset?.diskStorage || asset?.operatingSystem) && (
                     <tr className="border-t border-black bg-gray-50 print:bg-transparent">
-                      <td className="p-1 font-bold border-r border-black">Hardware Specs:</td>
-                      <td colSpan={3} className="p-1 font-mono text-[9.5px]">
+                      <td className="p-2 font-bold border-r border-black">Hardware Specs:</td>
+                      <td colSpan={3} className="p-2 font-mono text-[10px]">
                         {[asset.processor, asset.memory, asset.diskStorage, asset.operatingSystem].filter(Boolean).join(' | ')}
                       </td>
                     </tr>
@@ -831,81 +934,103 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </table>
             </div>
 
-            {/* SECTION C: REPORTED PROBLEM & DIAGNOSIS */}
-            <div className="mb-2.5">
-              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
+            {/* SECTION III: REPORTED PROBLEM & DIAGNOSIS */}
+            <div className="mb-3.5">
+              <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 III. Reported Issue & Diagnosis
               </div>
-              <div className="border border-black p-1.5 text-[10.5px] font-sans space-y-0.5">
-                <div><strong className="font-bold">Subject / Symptom:</strong> {diagnosis}</div>
-                <div className="text-gray-700 italic border-t border-gray-200 pt-0.5 mt-0.5 leading-tight">
-                  "{ticket.description}"
+              <div className="border border-black text-[11px] font-sans">
+                <div className="p-2 border-b border-black">
+                  <div><strong className="font-bold">Subject / Symptom:</strong> {diagnosis}</div>
+                  {ticket.description && (
+                    <div className="text-gray-700 italic border-t border-gray-200 pt-1 mt-1 leading-normal">
+                      "{ticket.description}"
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 border-b border-black">
+                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">A. Diagnostic Findings & Root Cause:</div>
+                  <p className="whitespace-pre-wrap leading-relaxed">{technicalFindings || 'No diagnostic findings entered.'}</p>
+                </div>
+                <div className="p-2">
+                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">B. Troubleshooting Conducted & Action Taken:</div>
+                  <p className="whitespace-pre-wrap leading-relaxed">{actionTaken || 'Standard troubleshooting performed.'}</p>
                 </div>
               </div>
             </div>
 
-            {/* SECTION D: TECHNICAL ASSESSMENT & ACTION TAKEN */}
-            <div className="mb-2.5">
-              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
+            {/* SECTION IV: TECHNICAL ASSESSMENT & ACTION TAKEN */}
+            <div className="mb-3.5">
+              <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 IV. Technical Assessment & Action Taken
               </div>
-              <div className="border border-black text-[10.5px] font-sans">
-                <div className="p-1.5 border-b border-black">
-                  <div className="font-bold mb-0.5 uppercase text-[9px] text-gray-700">A. Diagnostic Findings & Root Cause:</div>
-                  <p className="whitespace-pre-wrap leading-tight">{technicalFindings}</p>
-                </div>
-                <div className="p-1.5">
-                  <div className="font-bold mb-0.5 uppercase text-[9px] text-gray-700">B. Troubleshooting Conducted & Action Taken:</div>
-                  <p className="whitespace-pre-wrap leading-tight">{actionTaken}</p>
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-white">
+                <div className="space-y-1.5">
+                  {displayedActionLog.length > 0 ? (
+                    displayedActionLog.map((item, idx) => (
+                      <div key={idx} className="flex items-start gap-1.5 leading-snug">
+                        <span className="font-mono text-[10.5px] font-bold text-gray-900 shrink-0">
+                          {item.timestamp} :
+                        </span>
+                        <span className="font-medium text-black">
+                          {item.action}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="italic text-gray-500">
+                      {format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a')} : Service activity completed for Ticket #{ticket.ticketNumber}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* SECTION E: RECOMMENDATION */}
-            <div className="mb-3">
-              <div className="bg-black text-white text-[9px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
+            {/* SECTION V: RECOMMENDATION */}
+            <div className="mb-4">
+              <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 V. ICT Recommendation
               </div>
-              <div className="border border-black p-1.5 text-[10.5px] font-sans bg-gray-50 print:bg-transparent">
-                <p className="font-semibold whitespace-pre-wrap leading-tight">
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-gray-50 print:bg-transparent">
+                <p className="font-semibold whitespace-pre-wrap leading-relaxed">
                   {recommendation}
                 </p>
               </div>
             </div>
 
-            {/* SECTION F: CERTIFICATION & SIGNATORIES (Aligned 2 columns) */}
-            <div className="mt-3 pt-1">
-              <p className="text-[9px] font-sans italic text-center mb-4 text-gray-800">
-                I hereby certify that the technical diagnosis, assessment, and repair actions detailed in this document were officially performed in accordance with standard LGU ICT maintenance procedures.
+            {/* SECTION VI: CERTIFICATION & SIGNATORIES */}
+            <div className="mt-4 pt-1">
+              <p className="text-[10px] font-sans italic text-center mb-5 text-gray-800 leading-normal max-w-2xl mx-auto">
+                I hereby certify that the technical diagnosis, assessment, repair actions and/or recommendations detailed in this document were officially performed by the assigned technician.
               </p>
 
               <div className="grid grid-cols-2 gap-10 sm:gap-16 max-w-xl mx-auto text-center font-sans">
                 {/* Reviewed & Approved By */}
                 <div className="flex flex-col justify-end text-center">
-                  <div className="text-[9px] uppercase font-bold text-gray-700 mb-8">Reviewed & Approved by:</div>
-                  <div className="border-b border-black font-black uppercase text-[11px] pb-0.5">
+                  <div className="text-[9.5px] uppercase font-bold text-gray-700 mb-10">Reviewed & Approved by:</div>
+                  <div className="border-b border-black font-black uppercase text-[11.5px] pb-0.5">
                     {ictHeadName || 'Engr. Kenneth Jones D. Alforque'}
                   </div>
-                  <div className="text-[9px] font-bold text-gray-800 mt-0.5">Information System Analyst</div>
-                  <div className="text-[8px] text-gray-500 mt-0.5">Date: ____________________</div>
+                  <div className="text-[9.5px] font-bold text-gray-800 mt-0.5">Information System Analyst</div>
+                  <div className="text-[8.5px] text-gray-500 mt-0.5">Date: ____________________</div>
                 </div>
 
                 {/* Received & Noted By */}
                 <div className="flex flex-col justify-end text-center">
-                  <div className="text-[9px] uppercase font-bold text-gray-700 mb-8">Received & Noted by:</div>
-                  <div className="border-b border-black font-bold uppercase text-[11px] pb-0.5">
+                  <div className="text-[9.5px] uppercase font-bold text-gray-700 mb-10">Received & Noted by:</div>
+                  <div className="border-b border-black font-bold uppercase text-[11.5px] pb-0.5">
                     {officeHeadName || 'Authorized Office Representative'}
                   </div>
-                  <div className="text-[9px] text-gray-700 mt-0.5">Head of Office / Custodian</div>
-                  <div className="text-[8px] text-gray-500 mt-0.5">Date: ____________________</div>
+                  <div className="text-[9.5px] text-gray-700 mt-0.5">Head of Office / Custodian</div>
+                  <div className="text-[8.5px] text-gray-500 mt-0.5">Date: ____________________</div>
                 </div>
               </div>
             </div>
 
             {/* Print Footer */}
-            <div className="mt-4 pt-1.5 border-t border-gray-300 flex justify-between items-center text-[7.5px] font-sans text-gray-500">
+            <div className="mt-5 pt-2 border-t border-gray-300 flex justify-between items-center text-[8px] font-sans text-gray-500">
               <span>LGU Malungon ICT Help Desk System • Official Technical Documentation</span>
-              <span>Paper Size: {paperSize.toUpperCase()}</span>
+              <span>Municipal Government of Malungon</span>
               <span>Generated on: {format(new Date(), 'yyyy-MM-dd HH:mm:ss')} • Page 1 of 1</span>
             </div>
 
