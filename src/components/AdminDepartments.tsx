@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useAppContext } from "../store/AppContext";
+import { Office } from "../store/mockData";
 import { Building2, Plus, Edit2, Check, X } from "lucide-react";
 import { Toast, ConfirmModal } from "../lib/toast";
 
@@ -9,9 +10,15 @@ export function AdminDepartments() {
 
   const [isAdding, setIsAdding] = useState(false);
   const [newOfficeName, setNewOfficeName] = useState("");
+  const [newOfficeHead, setNewOfficeHead] = useState("");
+  const [newAcronym, setNewAcronym] = useState("");
+  const [newEmail, setNewEmail] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editOfficeHead, setEditOfficeHead] = useState("");
+  const [editAcronym, setEditAcronym] = useState("");
+  const [editEmail, setEditEmail] = useState("");
 
   let displayedOffices = offices;
   if (searchQuery.trim()) {
@@ -19,6 +26,7 @@ export function AdminDepartments() {
     displayedOffices = displayedOffices.filter(
       (o) =>
         o.name.toLowerCase().includes(lowerQuery) ||
+        o.officeHead?.toLowerCase().includes(lowerQuery) ||
         o.acronym?.toLowerCase().includes(lowerQuery) ||
         o.email?.toLowerCase().includes(lowerQuery) ||
         o.id.toLowerCase().includes(lowerQuery)
@@ -32,8 +40,16 @@ export function AdminDepartments() {
         text: "Are you sure you want to add this department?",
       });
       if (result.isConfirmed) {
-        createNewOffice(newOfficeName.trim());
+        await createNewOffice({
+          name: newOfficeName.trim(),
+          officeHead: newOfficeHead.trim() || undefined,
+          acronym: newAcronym.trim() || undefined,
+          email: newEmail.trim() || undefined,
+        });
         setNewOfficeName("");
+        setNewOfficeHead("");
+        setNewAcronym("");
+        setNewEmail("");
         setIsAdding(false);
         Toast.fire({
           icon: "success",
@@ -43,16 +59,20 @@ export function AdminDepartments() {
     }
   };
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUpdate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (editingId && editName.trim()) {
       const result = await ConfirmModal.fire({
         text: "Are you sure you want to update this department?",
       });
       if (result.isConfirmed) {
-        updateExistingOffice(editingId, editName.trim());
-        setEditingId(null);
-        setEditName("");
+        await updateExistingOffice(editingId, {
+          name: editName.trim(),
+          officeHead: editOfficeHead.trim() || undefined,
+          acronym: editAcronym.trim() || undefined,
+          email: editEmail.trim() || undefined,
+        });
+        cancelEdit();
         Toast.fire({
           icon: "success",
           title: "Department updated",
@@ -61,14 +81,20 @@ export function AdminDepartments() {
     }
   };
 
-  const startEdit = (id: string, currentName: string) => {
-    setEditingId(id);
-    setEditName(currentName);
+  const startEdit = (office: Office) => {
+    setEditingId(office.id);
+    setEditName(office.name);
+    setEditOfficeHead(office.officeHead || "");
+    setEditAcronym(office.acronym || "");
+    setEditEmail(office.email || "");
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditName("");
+    setEditOfficeHead("");
+    setEditAcronym("");
+    setEditEmail("");
   };
 
   return (
@@ -102,7 +128,7 @@ export function AdminDepartments() {
           <div className="relative w-full sm:w-auto">
             <input
               type="text"
-              placeholder="Search departments..."
+              placeholder="Search departments or office head..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-bg border border-border rounded-xl text-ink px-4 py-2.5 text-sm font-medium w-full sm:w-[320px] outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
@@ -113,28 +139,79 @@ export function AdminDepartments() {
         {/* Add Department Inline Form */}
         {isAdding && (
           <div className="p-6 border-b border-border bg-bg/30">
-            <form onSubmit={handleAdd} className="flex flex-col sm:flex-row items-center gap-3">
-              <input
-                autoFocus
-                type="text"
-                placeholder="Enter department name..."
-                value={newOfficeName}
-                onChange={(e) => setNewOfficeName(e.target.value)}
-                className="flex-1 w-full sm:w-auto bg-bg border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
-              />
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  type="submit"
-                  className="flex-1 sm:flex-none bg-accent text-white px-5 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-sm active:scale-95"
-                >
-                  <Check className="w-4 h-4" /> Save
-                </button>
+            <form onSubmit={handleAdd} className="space-y-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-ink">Add New Department</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-1">
+                    Department Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    autoFocus
+                    type="text"
+                    required
+                    placeholder="e.g. Municipal Engineering Office"
+                    value={newOfficeName}
+                    onChange={(e) => setNewOfficeName(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-1">
+                    Name of Office Head
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Engr. Juan Dela Cruz"
+                    value={newOfficeHead}
+                    onChange={(e) => setNewOfficeHead(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-1">
+                    Acronym
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MEO"
+                    value={newAcronym}
+                    onChange={(e) => setNewAcronym(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="e.g. meo@malungon.gov.ph"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
-                  className="flex-1 sm:flex-none bg-surface border border-border text-ink-muted px-5 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-bg hover:text-ink transition-all shadow-sm"
+                  onClick={() => {
+                    setIsAdding(false);
+                    setNewOfficeName("");
+                    setNewOfficeHead("");
+                    setNewAcronym("");
+                    setNewEmail("");
+                  }}
+                  className="bg-surface border border-border text-ink-muted px-5 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-bg hover:text-ink transition-all shadow-sm"
                 >
                   <X className="w-4 h-4" /> Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-accent text-white px-5 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-sm active:scale-95"
+                >
+                  <Check className="w-4 h-4" /> Save Department
                 </button>
               </div>
             </form>
@@ -143,10 +220,11 @@ export function AdminDepartments() {
 
         {/* Data Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[900px]">
             <thead className="bg-surface border-b border-border">
               <tr className="text-[10px] uppercase tracking-widest font-bold text-ink-muted">
                 <th className="px-6 py-4 font-bold">Department Name</th>
+                <th className="px-6 py-4 font-bold">Name of Office Head</th>
                 <th className="px-6 py-4 font-bold">Acronym</th>
                 <th className="px-6 py-4 font-bold">Email</th>
                 <th className="px-6 py-4 font-bold">ID</th>
@@ -154,70 +232,134 @@ export function AdminDepartments() {
               </tr>
             </thead>
             <tbody className="text-sm">
-              {displayedOffices.map((office) => (
-                <tr
-                  key={office.id}
-                  className="hover:bg-bg/50 transition-colors group border-b border-border group-last:border-none"
-                >
-                  <td className="px-6 py-5">
-                    {editingId === office.id ? (
-                      <form
-                        onSubmit={handleUpdate}
-                        className="flex items-center gap-2"
-                      >
+              {displayedOffices.map((office) => {
+                const isEditing = editingId === office.id;
+                return (
+                  <tr
+                    key={office.id}
+                    className="hover:bg-bg/50 transition-colors group border-b border-border group-last:border-none"
+                    onKeyDown={(e) => {
+                      if (isEditing) {
+                        if (e.key === "Enter") handleUpdate();
+                        if (e.key === "Escape") cancelEdit();
+                      }
+                    }}
+                  >
+                    {/* Department Name */}
+                    <td className="px-6 py-4">
+                      {isEditing ? (
                         <input
                           autoFocus
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="w-full bg-bg border border-border rounded-lg text-ink px-4 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                          placeholder="Department Name"
+                          className="w-full min-w-[200px] bg-bg border border-border rounded-lg text-ink px-3 py-1.5 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
                         />
-                      </form>
-                    ) : (
-                      <div className="text-[14px] font-bold text-ink flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-bg border border-border flex items-center justify-center shadow-sm">
-                          <Building2 className="w-4 h-4 text-ink-muted" />
+                      ) : (
+                        <div className="text-[14px] font-bold text-ink flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-bg border border-border flex items-center justify-center shadow-sm flex-shrink-0">
+                            <Building2 className="w-4 h-4 text-ink-muted" />
+                          </div>
+                          <span>{office.name}</span>
                         </div>
-                        {office.name}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-5 text-[13px] font-medium text-ink-muted">
-                    {office.acronym || "-"}
-                  </td>
-                  <td className="px-6 py-5 text-[13px] font-medium text-ink-muted">
-                    {office.email || "-"}
-                  </td>
-                  <td className="px-6 py-5 font-mono text-ink-muted text-[11px] tracking-wider">
-                    {office.id}
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    {editingId === office.id ? (
-                      <div className="flex items-center justify-end gap-2">
+                      )}
+                    </td>
+
+                    {/* Name of Office Head */}
+                    <td className="px-6 py-4">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editOfficeHead}
+                          onChange={(e) => setEditOfficeHead(e.target.value)}
+                          placeholder="e.g. Engr. Juan Dela Cruz"
+                          className="w-full min-w-[180px] bg-bg border border-border rounded-lg text-ink px-3 py-1.5 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                        />
+                      ) : (
+                        <div className="text-[13px] font-medium">
+                          {office.officeHead ? (
+                            <span className="font-semibold text-ink">{office.officeHead}</span>
+                          ) : (
+                            <span className="text-ink-muted italic">-</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Acronym */}
+                    <td className="px-6 py-4">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editAcronym}
+                          onChange={(e) => setEditAcronym(e.target.value)}
+                          placeholder="Acronym"
+                          className="w-24 bg-bg border border-border rounded-lg text-ink px-3 py-1.5 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                        />
+                      ) : (
+                        <span className="text-[13px] font-medium text-ink-muted">
+                          {office.acronym || "-"}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Email */}
+                    <td className="px-6 py-4">
+                      {isEditing ? (
+                        <input
+                          type="email"
+                          value={editEmail}
+                          onChange={(e) => setEditEmail(e.target.value)}
+                          placeholder="Email"
+                          className="w-full min-w-[180px] bg-bg border border-border rounded-lg text-ink px-3 py-1.5 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all shadow-sm"
+                        />
+                      ) : (
+                        <span className="text-[13px] font-medium text-ink-muted">
+                          {office.email || "-"}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* ID */}
+                    <td className="px-6 py-4 font-mono text-ink-muted text-[11px] tracking-wider">
+                      {office.id}
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-6 py-4 text-right">
+                      {isEditing ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdate()}
+                            title="Save Changes"
+                            className="p-2 bg-green-500/10 text-green-500 rounded-lg hover:bg-green-500/20 transition-colors"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            title="Cancel"
+                            className="p-2 bg-surface border border-border text-ink-muted rounded-lg hover:bg-bg hover:text-ink transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          onClick={handleUpdate}
-                          className="p-2 bg-green-500/10 text-green-500 rounded-lg hover:bg-green-500/20 transition-colors"
+                          onClick={() => startEdit(office)}
+                          title="Edit Department"
+                          className="text-ink-muted hover:text-accent transition-colors p-2 opacity-0 group-hover:opacity-100 hover:bg-accent/10 rounded-lg"
                         >
-                          <Check className="w-4 h-4" />
+                          <Edit2 className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={cancelEdit}
-                          className="p-2 bg-surface border border-border text-ink-muted rounded-lg hover:bg-bg hover:text-ink transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => startEdit(office.id, office.name)}
-                        className="text-ink-muted hover:text-accent transition-colors p-2 opacity-0 group-hover:opacity-100 hover:bg-accent/10 rounded-lg"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
