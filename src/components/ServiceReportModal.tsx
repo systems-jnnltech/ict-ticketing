@@ -41,6 +41,25 @@ const RECOMMENDATION_PRESETS = [
   'Recommend connection to AVR/UPS and quarterly preventive maintenance.'
 ];
 
+const getFinalStatusColor = (status: FinalServiceStatus | string) => {
+  switch (status) {
+    case 'Repaired':
+    case 'Resolved':
+      return 'text-green-600 print:text-green-600';
+    case 'For Monitoring':
+    case 'Referred to Service Provider':
+      return 'text-blue-600 print:text-blue-600';
+    case 'For Further Assessment':
+    case 'For Procurement':
+      return 'text-amber-600 print:text-amber-600';
+    case 'For Replacement':
+    case 'For Disposal':
+      return 'text-red-600 print:text-red-600';
+    default:
+      return 'text-green-600 print:text-green-600';
+  }
+};
+
 export interface ActionLogEntry {
   timestamp: string;
   action: string;
@@ -237,10 +256,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    if (!technicalFindings.trim()) {
-      toast.error('Technical findings are required.');
-      return;
-    }
     if (!actionTaken.trim()) {
       toast.error('Action taken details are required.');
       return;
@@ -251,12 +266,13 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     }
 
     setIsSaving(true);
+    const finalFindings = technicalFindings.trim() || 'Technical evaluation and troubleshooting conducted.';
     try {
       if (existingReport) {
         await updateServiceReport(existingReport.id, {
           reportDate,
           diagnosis,
-          technicalFindings,
+          technicalFindings: finalFindings,
           actionTaken,
           finalStatus,
           recommendation,
@@ -272,7 +288,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           ticketId: ticket.id,
           reportDate: reportDate || new Date().toISOString().split('T')[0],
           diagnosis,
-          technicalFindings,
+          technicalFindings: finalFindings,
           actionTaken,
           finalStatus,
           recommendation,
@@ -469,6 +485,15 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
             background: #fff !important;
             page-break-after: avoid !important;
             break-after: avoid !important;
+          }
+          .text-green-600 {
+            color: #16a34a !important;
+          }
+          .text-blue-600 {
+            color: #2563eb !important;
+          }
+          .text-amber-600 {
+            color: #d97706 !important;
           }
           .text-red-600 {
             color: #dc2626 !important;
@@ -876,7 +901,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </div>
               <div className="p-2 space-y-0.5">
                 <div><span className="font-bold">REFERENCE TICKET NO:</span> <span className="font-mono font-bold">{ticket.ticketNumber}</span></div>
-                <div><span className="font-bold">FINAL SERVICE STATUS:</span> <span className="font-bold uppercase underline text-red-600 print:text-red-600">{finalStatus}</span></div>
+                <div><span className="font-bold">FINAL SERVICE STATUS:</span> <span className={`font-bold uppercase underline ${getFinalStatusColor(finalStatus)}`}>{finalStatus}</span></div>
               </div>
             </div>
 
@@ -917,7 +942,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                     <td className="w-1/4 p-2 font-medium">{asset ? `${asset.brand} ${asset.model}` : 'Standard Office Machine'}</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Property / Inv. No:</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Property No.:</td>
                     <td className="p-2 font-mono border-r border-black">{asset?.propertyNumber || asset?.inventoryNumber || 'N/A'}</td>
                     <td className="p-2 bg-gray-100 font-bold border-r border-black">Serial Number:</td>
                     <td className="p-2 font-mono">{asset?.serialNumber || 'N/A'}</td>
@@ -940,20 +965,14 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </table>
             </div>
 
-            {/* SECTION III: REPORTED ISSUE & DIAGNOSIS */}
+            {/* SECTION III: REPORTED ISSUE */}
             <div className="mb-3.5">
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
-                III. Reported Issue & Diagnosis
+                III. Reported Issue
               </div>
-              <div className="border border-black text-[11px] font-sans">
-                <div className="p-2 border-b border-black">
-                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">A. Subject / Symptom:</div>
-                  <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{diagnosis || ticket.subject}</p>
-                </div>
-                <div className="p-2">
-                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">B. Diagnostic Findings & Root Cause:</div>
-                  <p className="whitespace-pre-wrap leading-relaxed">{technicalFindings || 'No diagnostic findings entered.'}</p>
-                </div>
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-white">
+                <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">Subject / Symptom:</div>
+                <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{diagnosis || ticket.subject}</p>
               </div>
             </div>
 
