@@ -60,6 +60,8 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const hasReferralDetails = ticket.status === 'REFERRED' || (ticket.comments || []).some(c => c.text.includes('referred to external technician') || c.text.includes('DISPATCH_INFO'));
   const existingServiceReport = serviceReports?.find(r => r.ticketId === ticket.id);
   const isTicketCompleted = ticket.status === 'RESOLVED' || ticket.status === 'CLOSED';
+  const isICTSupport = currentUser?.role === 'ICT Support';
+  const isWorkNotStarted = isICTSupport && (ticket.status === 'NEW' || ticket.status === 'ASSIGNED');
 
   // Filter helper to exclude system status changes and hidden dispatch JSON metadata
   const isPublicDiscussionComment = (c: { text: string }) => 
@@ -94,6 +96,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isTicketCompleted || isWorkNotStarted) return;
     if (newCommentText.trim()) {
       addComment(ticket.id, newCommentText.trim());
       setNewCommentText('');
@@ -135,7 +138,6 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const allowedRecommendations = Math.max(totalActionableTransitions, isActionable ? 1 : 0);
   
   const isAdmin = currentUser?.role === 'Admin';
-  const isICTSupport = currentUser?.role === 'ICT Support';
   
   const hasUnusedCycle = occurrences < allowedRecommendations;
   const isAuthorized = (isICTSupport && ticket.assignedToId === currentUser.id) || isAdmin;
@@ -349,19 +351,25 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                           type="text"
                           value={newCommentText}
                           onChange={(e) => setNewCommentText(e.target.value)}
-                          placeholder={isTicketCompleted ? `Ticket is ${ticket.status.toLowerCase()} - messaging disabled` : "Type a message or update..."}
-                          disabled={isTicketCompleted}
-                          className={`flex-1 bg-surface border border-border rounded-xl pl-5 pr-14 py-3.5 text-sm font-medium outline-none shadow-sm transition-all ${
+                          placeholder={
                               isTicketCompleted 
+                                  ? `Ticket is ${ticket.status.toLowerCase()} - messaging disabled` 
+                                  : isWorkNotStarted
+                                      ? "Click 'Start Work' first to begin discussion and post updates..."
+                                      : "Type a message or update..."
+                          }
+                          disabled={isTicketCompleted || isWorkNotStarted}
+                          className={`flex-1 bg-surface border border-border rounded-xl pl-5 pr-14 py-3.5 text-sm font-medium outline-none shadow-sm transition-all ${
+                              (isTicketCompleted || isWorkNotStarted) 
                                   ? 'opacity-60 cursor-not-allowed bg-bg text-ink-muted placeholder:text-ink-muted/60' 
                                   : 'focus:ring-2 focus:ring-accent/50 focus:border-accent'
                           }`}
                       />
                       <button 
                           type="submit"
-                          disabled={isTicketCompleted || !newCommentText.trim()}
+                          disabled={isTicketCompleted || isWorkNotStarted || !newCommentText.trim()}
                           className="absolute right-2 top-2 bottom-2 bg-accent text-white px-4 rounded-lg flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-all shadow-sm active:scale-95"
-                          title={isTicketCompleted ? 'Messaging is disabled' : 'Send message'}
+                          title={isTicketCompleted ? 'Messaging is disabled' : isWorkNotStarted ? "Click 'Start Work' first" : 'Send message'}
                       >
                           <Send className="w-4 h-4" />
                       </button>
@@ -369,6 +377,11 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                   {isTicketCompleted && (
                       <p className="text-[11px] text-ink-muted italic text-center mt-2.5">
                           This ticket is {ticket.status.toLowerCase()}. Discussion and message updates are closed.
+                      </p>
+                  )}
+                  {isWorkNotStarted && !isTicketCompleted && (
+                      <p className="text-[11px] text-accent font-medium text-center mt-2.5 flex items-center justify-center gap-1.5">
+                          <span>Please click <strong>Start Work</strong> in Ticket Actions to begin working and enable discussion updates.</span>
                       </p>
                   )}
               </div>
