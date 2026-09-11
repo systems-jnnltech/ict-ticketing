@@ -197,7 +197,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setFinalStatus(existingReport.finalStatus);
       setRecommendation(existingReport.recommendation);
       setIctHeadName(existingReport.ictHeadName || 'Engr. Kenneth Jones D. Alforque');
-      setOfficeHeadName(existingReport.officeHeadName || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
+      setOfficeHeadName(existingReport.officeHeadName || department?.officeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
       setReportStatus(existingReport.reportStatus);
       setActionLogText(defaultLogString);
       setActiveTab('preview');
@@ -225,7 +225,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setRecommendation(ticket.ictRecommendation || RECOMMENDATION_PRESETS[0]);
       
       setIctHeadName('Engr. Kenneth Jones D. Alforque');
-      setOfficeHeadName(department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative');
+      setOfficeHeadName(department?.officeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
       setReportStatus('Generated');
       setActionLogText(defaultLogString);
       setActiveTab('form');
