@@ -1,4 +1,4 @@
-import { ServiceReport } from '../store/mockData';
+import { ServiceReport, Office } from '../store/mockData';
 
 const parseNumericCost = (val: any) => {
   if (val === null || val === undefined) return null;
@@ -178,11 +178,19 @@ export const mapUserFromDB = (dbProfile: any) => ({
   officeId: dbProfile.department_id,
 });
 
-export const mapOfficeFromDB = (dbDepartment: any) => ({
+export const mapOfficeFromDB = (dbDepartment: any): Office => ({
   id: dbDepartment.id,
   name: dbDepartment.name,
+  officeHead: dbDepartment.office_head || dbDepartment.head_of_office || undefined,
   acronym: dbDepartment.acronym,
   email: dbDepartment.email
+});
+
+export const mapOfficeToDB = (office: Partial<Office> | { name: string; officeHead?: string; acronym?: string; email?: string }) => ({
+  name: office.name,
+  office_head: office.officeHead || null,
+  acronym: office.acronym || null,
+  email: office.email || null,
 });
 
 export const mapServiceReportFromDB = (dbReport: any): ServiceReport => ({
