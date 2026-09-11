@@ -70,83 +70,155 @@ export function getActionLogEntries(
   assigneeName?: string,
   finalStatusText?: string
 ): ActionLogEntry[] {
-  const entries: { time: Date; text: string }[] = [];
+  interface RawEntry {
+    time: Date;
+    text: string;
+    phase: number; // 1: submitted, 2: assigned, 3: started, 4: notes/actions, 5: resolved, 6: closed
+    key: string;
+  }
+
+  const rawEntries: RawEntry[] = [];
+
+  // Helper to determine phase and normalized key
+  const analyzeText = (text: string): { cleanText: string; phase: number; key: string } => {
+    let clean = text.trim();
+    if (clean.startsWith('Action:')) {
+      clean = clean.replace(/^Action:\s*/, '').trim();
+    }
+    clean = clean.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+    const lower = clean.toLowerCase();
+
+    if (lower.includes('ticket submitted') || lower.includes('logged into ict')) {
+      return { cleanText: clean, phase: 1, key: 'ticket_submitted' };
+    }
+    if (lower.startsWith('assigned ticket to') || lower.includes('assigned ticket')) {
+      return { cleanText: clean, phase: 2, key: 'assigned' };
+    }
+    if (lower.includes('started work on the ticket') || lower.includes('started work')) {
+      return { cleanText: 'Started work on the ticket', phase: 3, key: 'started_work' };
+    }
+    if (lower.includes('marked ticket as') || lower.includes('resolved') || lower.includes('repaired')) {
+      return { cleanText: clean, phase: 5, key: 'resolved' };
+    }
+    if (lower.includes('closed ticket') || lower.includes('officially closed')) {
+      return { cleanText: clean, phase: 6, key: 'closed' };
+    }
+
+    // General technician action or comment (e.g. "done reset", troubleshooting notes)
+    return { cleanText: clean, phase: 4, key: `note_${lower.substring(0, 30)}` };
+  };
 
   // 1. Ticket submitted
   if (ticket.createdAt) {
-    entries.push({
+    rawEntries.push({
       time: new Date(ticket.createdAt),
-      text: 'Ticket submitted and logged into ICT Helpdesk system'
+      text: 'Ticket submitted and logged into ICT Helpdesk system',
+      phase: 1,
+      key: 'ticket_submitted'
     });
   }
 
-  // 2. Assigned
-  const assignedHistory = ticket.statusHistory?.find(h => h.status === 'ASSIGNED');
-  const assignedComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('assigned'));
-  if (ticket.assignedToId || assigneeName) {
-    const assignedTime = assignedHistory?.timestamp || assignedComment?.createdAt || ticket.createdAt;
-    entries.push({
-      time: new Date(assignedTime),
-      text: `Assigned ticket to ${assigneeName || 'ICT Technical Personnel'}`
+  // Track which lifecycle phases already exist in comments
+  const hasActionInComments = (phaseKey: string) => {
+    return (ticket.comments || []).some(c => {
+      if (!c.text) return false;
+      const { key } = analyzeText(c.text);
+      return key === phaseKey;
     });
-  }
+  };
 
-  // 3. In Progress
-  const inProgressHistory = ticket.statusHistory?.find(h => h.status === 'IN PROGRESS');
-  const inProgressComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('in progress'));
-  if (inProgressHistory || inProgressComment || ticket.status === 'IN PROGRESS' || ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') {
-    const progTime = inProgressHistory?.timestamp || inProgressComment?.createdAt || ticket.updatedAt || ticket.createdAt;
-    entries.push({
-      time: new Date(progTime),
-      text: 'Started work on the ticket'
-    });
-  }
-
-  // 4. Ticket Comments / System Activities
+  // 2. Process all comments from Discussion & Activity (single source of truth)
   if (ticket.comments && ticket.comments.length > 0) {
     ticket.comments.forEach(c => {
       if (!c.text) return;
       if (c.text.startsWith('System: Status changed to')) return;
       if (c.text.startsWith('{') && c.text.endsWith('}')) return;
-      entries.push({
+      
+      const { cleanText, phase, key } = analyzeText(c.text);
+      if (!cleanText) return;
+
+      rawEntries.push({
         time: new Date(c.createdAt),
-        text: c.text
+        text: cleanText,
+        phase,
+        key
       });
     });
   }
 
-  // 5. Resolved / Repaired
-  const resolvedHistory = ticket.statusHistory?.find(h => h.status === 'RESOLVED');
-  const resolvedComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('resolved') || c.text?.toLowerCase().includes('repaired'));
-  if (resolvedHistory || resolvedComment || ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') {
-    const resTime = resolvedHistory?.timestamp || resolvedComment?.createdAt || ticket.updatedAt;
-    entries.push({
+  // 3. Fallbacks ONLY if comments do not already contain these lifecycle events:
+  // Fallback for Assigned
+  if (!hasActionInComments('assigned') && (ticket.assignedToId || assigneeName)) {
+    const assignedHistory = ticket.statusHistory?.find(h => h.status === 'ASSIGNED');
+    const assignedTime = assignedHistory?.timestamp || ticket.createdAt;
+    rawEntries.push({
+      time: new Date(assignedTime),
+      text: `Assigned ticket to ${assigneeName || 'ICT Technical Personnel'}`,
+      phase: 2,
+      key: 'assigned'
+    });
+  }
+
+  // Fallback for Started Work (only if ticket reached In Progress / Resolved / Closed and not in comments)
+  if (!hasActionInComments('started_work') && ['IN PROGRESS', 'RESOLVED', 'CLOSED'].includes(ticket.status)) {
+    const inProgHistory = ticket.statusHistory?.find(h => h.status === 'IN PROGRESS');
+    const inProgTime = inProgHistory?.timestamp || ticket.createdAt;
+    rawEntries.push({
+      time: new Date(inProgTime),
+      text: 'Started work on the ticket',
+      phase: 3,
+      key: 'started_work'
+    });
+  }
+
+  // Fallback for Resolved (only if ticket is Resolved / Closed and not in comments)
+  if (!hasActionInComments('resolved') && ['RESOLVED', 'CLOSED'].includes(ticket.status)) {
+    const resolvedHistory = ticket.statusHistory?.find(h => h.status === 'RESOLVED');
+    const resTime = resolvedHistory?.timestamp || ticket.updatedAt || ticket.createdAt;
+    rawEntries.push({
       time: new Date(resTime),
-      text: `Marked ticket as ${finalStatusText || 'Repaired / Resolved'}`
+      text: `Marked ticket as ${finalStatusText || 'Repaired / Resolved'}`,
+      phase: 5,
+      key: 'resolved'
     });
   }
 
-  // 6. Closed
-  const closedHistory = ticket.statusHistory?.find(h => h.status === 'CLOSED');
-  const closedComment = ticket.comments?.find(c => c.text?.toLowerCase().includes('closed'));
-  if (closedHistory || closedComment || ticket.status === 'CLOSED') {
-    const closeTime = closedHistory?.timestamp || closedComment?.createdAt || ticket.updatedAt;
-    entries.push({
+  // Fallback for Closed (only if ticket is Closed and not in comments)
+  if (!hasActionInComments('closed') && ticket.status === 'CLOSED') {
+    const closedHistory = ticket.statusHistory?.find(h => h.status === 'CLOSED');
+    const closeTime = closedHistory?.timestamp || ticket.updatedAt;
+    rawEntries.push({
       time: new Date(closeTime),
-      text: 'Confirmed resolution and officially closed ticket'
+      text: 'Confirmed resolution and officially closed ticket',
+      phase: 6,
+      key: 'closed'
     });
   }
 
-  // Sort chronologically
-  entries.sort((a, b) => a.time.getTime() - b.time.getTime());
+  // 4. Sort entries:
+  // Primary sort by timestamp.
+  // If timestamps are identical or within a 2-minute window (120,000 ms), sort by lifecycle phase
+  rawEntries.sort((a, b) => {
+    const timeDiff = a.time.getTime() - b.time.getTime();
+    if (Math.abs(timeDiff) <= 120000) {
+      if (a.phase !== b.phase) {
+        return a.phase - b.phase;
+      }
+    }
+    return timeDiff;
+  });
 
-  // Deduplicate entries with identical timestamp and text
-  const seen = new Set<string>();
+  // 5. Smart Deduplication
+  const seenKeys = new Set<string>();
   const result: ActionLogEntry[] = [];
-  for (const item of entries) {
-    const key = `${format(item.time, 'yyyy-MM-dd HH:mm')} - ${item.text}`;
-    if (!seen.has(key)) {
-      seen.add(key);
+
+  for (const item of rawEntries) {
+    const isLifecycle = ['ticket_submitted', 'assigned', 'started_work', 'resolved', 'closed'].includes(item.key);
+    const dedupKey = isLifecycle ? item.key : `${format(item.time, 'yyyy-MM-dd HH:mm')} - ${item.text.toLowerCase()}`;
+
+    if (!seenKeys.has(dedupKey)) {
+      seenKeys.add(dedupKey);
       result.push({
         timestamp: format(item.time, 'MMM dd, yyyy • hh:mm a'),
         action: item.text
