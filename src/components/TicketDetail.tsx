@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { RESOLUTION_OPTIONS } from '../store/mockData';
+import { RESOLUTION_OPTIONS, Ticket, getTicketResolution } from '../store/mockData';
 import { ArrowLeft, Clock, User, Monitor, AlertCircle, CheckCircle2, Send, Activity, X, ExternalLink, FileText, Printer, Eye, History, ShieldCheck, Database, FileCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { getTicketSLA } from '../utils/sla';
@@ -92,83 +92,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
     !c.text.startsWith('System: Status changed to') && !c.text.includes('DISPATCH_INFO');
 
   // Helper to extract specific resolution outcome (e.g. For Equipment Replacement) with semantic styling
-  const getTicketResolution = (t: Ticket): { category: string; colorClass: string; badgeClass: string; dotClass: string; borderClass: string } | null => {
-    let resCategory = '';
-    for (const c of t.comments || []) {
-      const m = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/);
-      if (m) {
-        resCategory = m[1].trim();
-        break;
-      }
-    }
-
-    if (!resCategory && serviceReports) {
-      const report = serviceReports.find(r => r.ticketId === t.id);
-      if (report?.finalStatus) {
-        resCategory = report.finalStatus;
-      }
-    }
-
-    if (!resCategory) {
-      for (const c of t.comments || []) {
-        const m = c.text.match(/Marked ticket as Resolved:\s*(.+)/i);
-        if (m) {
-          resCategory = m[1].split('\n')[0].trim();
-          break;
-        }
-      }
-    }
-
-    if (!resCategory) return null;
-
-    switch (resCategory) {
-      case 'For Equipment Replacement':
-      case 'For Replacement':
-      case 'For Disposal':
-        return {
-          category: resCategory,
-          colorClass: 'text-red-600',
-          badgeClass: 'bg-red-500/10 text-red-600 border-red-500/20',
-          dotClass: 'bg-red-500',
-          borderClass: 'border-red-500'
-        };
-      case 'For Parts Replacement':
-      case 'For Procurement':
-      case 'For Further Assessment':
-        return {
-          category: resCategory,
-          colorClass: 'text-amber-600',
-          badgeClass: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-          dotClass: 'bg-amber-500',
-          borderClass: 'border-amber-500'
-        };
-      case 'Referred to Technician / Service Center':
-      case 'Referred to Service Provider':
-        return {
-          category: resCategory,
-          colorClass: 'text-purple-600',
-          badgeClass: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
-          dotClass: 'bg-purple-500',
-          borderClass: 'border-purple-500'
-        };
-      case 'No Issue Found':
-        return {
-          category: resCategory,
-          colorClass: 'text-blue-600',
-          badgeClass: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-          dotClass: 'bg-blue-500',
-          borderClass: 'border-blue-500'
-        };
-      default:
-        return {
-          category: resCategory,
-          colorClass: 'text-green-600',
-          badgeClass: 'bg-green-500/10 text-green-600 border-green-500/20',
-          dotClass: 'bg-green-500',
-          borderClass: 'border-green-500'
-        };
-    }
-  };
+  const getTicketResolutionMeta = (t: Ticket) => getTicketResolution(t, serviceReports);
 
   const handleAssign = async () => {
     if (selectedAssignee) {
@@ -600,36 +524,11 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                 </span>
                               )}
                             </div>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
-                                  #{tkt.ticketNumber}
-                                </span>
-                                <span className="font-bold text-sm text-ink">{tkt.subject}</span>
-                              </div>
-                              {(() => {
-                                const res = getTicketResolution(tkt);
-                                if (res) {
-                                  return (
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border ml-auto ${res.badgeClass}`}>
-                                      {res.category}
-                                    </span>
-                                  );
-                                } else if (tkt.status === 'RESOLVED') {
-                                  return (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-green-500/10 border border-green-500/20 text-green-600 ml-auto">
-                                      Resolved
-                                    </span>
-                                  );
-                                } else if (tkt.status === 'CLOSED') {
-                                  return (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-bg border border-border text-ink-muted ml-auto">
-                                      Closed
-                                    </span>
-                                  );
-                                }
-                                return null;
-                              })()}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
+                                #{tkt.ticketNumber}
+                              </span>
+                              <span className="font-bold text-sm text-ink">{tkt.subject}</span>
                             </div>
                           </div>
 
@@ -875,7 +774,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
                             {/* Resolved / Closed Node */}
                             {['RESOLVED', 'CLOSED'].includes(tkt.status) && (() => {
-                              const res = getTicketResolution(tkt);
+                              const res = getTicketResolutionMeta(tkt);
                               const dotColor = tkt.status === 'CLOSED'
                                 ? 'bg-ink-muted'
                                 : (res?.dotClass || 'bg-green-500');
@@ -1470,7 +1369,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                     }
 
                     const currentResMeta = (step.key === 'RESOLVED' && (isCompleted || isCurrent))
-                      ? getTicketResolution(ticket)
+                      ? getTicketResolutionMeta(ticket)
                       : null;
 
                     const dotBorderClass = currentResMeta
