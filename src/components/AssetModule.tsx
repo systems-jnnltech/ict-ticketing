@@ -5,6 +5,7 @@ import { ArrowLeft, Monitor, Search, Edit2, Plus, X, Upload, Database, FileCheck
 import { format } from "date-fns";
 import { BulkImportModal } from "./BulkImportModal";
 import { findOfficeForAsset } from "../lib/mappers";
+import { getTicketResolution } from "../store/mockData";
 
 export function AssetList({
   onSelectAsset,
@@ -171,7 +172,7 @@ export function AssetDetail({
   onBack: () => void;
   onEdit?: () => void;
 }) {
-  const { assets, offices, tickets, currentUser, assetHistories } = useAppContext();
+  const { assets, offices, tickets, currentUser, assetHistories, serviceReports } = useAppContext();
   const asset = assets.find((a) => a.id === assetId);
   const [showQR, setShowQR] = React.useState(false);
 
@@ -452,15 +453,6 @@ export function AssetDetail({
                         </span>
                         <span className="font-bold text-sm text-ink">{ticket.subject}</span>
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border ${
-                          ticket.status === 'CLOSED' ? 'bg-surface border-border text-ink-muted' :
-                          ticket.status === 'RESOLVED' ? 'bg-green-500/10 border-green-500/20 text-green-500' :
-                          ticket.status === 'ESCALATED' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
-                          ticket.status === 'IN PROGRESS' ? 'bg-orange-500/10 border-orange-500/20 text-orange-500' :
-                          'bg-blue-500/10 border-blue-500/20 text-blue-500'
-                      }`}>
-                        {ticket.status}
-                      </span>
                     </div>
                     
                     <p className="text-sm font-medium text-ink-muted leading-relaxed mb-6 max-w-4xl line-clamp-2">
@@ -659,17 +651,30 @@ export function AssetDetail({
                       })()}
 
                       {/* Resolved / Closed Node */}
-                      {['RESOLVED', 'CLOSED'].includes(ticket.status) && (
-                        <div className="relative pl-6">
-                          <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${ticket.status === 'CLOSED' ? 'bg-ink-muted' : 'bg-green-500'}`} />
-                          <div className="flex flex-wrap items-baseline gap-2">
-                            <span className={`text-[11px] font-bold uppercase tracking-widest ${ticket.status === 'CLOSED' ? 'text-ink-muted' : 'text-green-600'}`}>
-                              Ticket {ticket.status === 'CLOSED' ? 'Closed' : 'Resolved'}
-                            </span>
-                            <span className="text-xs text-ink-muted">{format(new Date(ticket.updatedAt), "MMM d, yyyy • h:mm a")}</span>
+                      {['RESOLVED', 'CLOSED'].includes(ticket.status) && (() => {
+                        const res = getTicketResolution(ticket, serviceReports);
+                        const dotColor = ticket.status === 'CLOSED'
+                          ? 'bg-ink-muted'
+                          : (res?.dotClass || 'bg-green-500');
+                        const textColor = ticket.status === 'CLOSED'
+                          ? 'text-ink-muted'
+                          : (res?.colorClass || 'text-green-600');
+                        const labelText = ticket.status === 'CLOSED'
+                          ? (res ? `Ticket Closed • ${res.category}` : 'Ticket Closed')
+                          : (res ? `Ticket Resolved: ${res.category}` : 'Ticket Resolved');
+
+                        return (
+                          <div className="relative pl-6">
+                            <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${dotColor}`} />
+                            <div className="flex flex-wrap items-baseline gap-2">
+                              <span className={`text-[11px] font-bold uppercase tracking-widest ${textColor}`}>
+                                {labelText}
+                              </span>
+                              <span className="text-xs text-ink-muted">{format(new Date(ticket.updatedAt), "MMM d, yyyy • h:mm a")}</span>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   </div>
                 );
