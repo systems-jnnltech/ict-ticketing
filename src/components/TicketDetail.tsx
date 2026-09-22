@@ -91,6 +91,85 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const isPublicDiscussionComment = (c: { text: string }) => 
     !c.text.startsWith('System: Status changed to') && !c.text.includes('DISPATCH_INFO');
 
+  // Helper to extract specific resolution outcome (e.g. For Equipment Replacement) with semantic styling
+  const getTicketResolution = (t: Ticket): { category: string; colorClass: string; badgeClass: string; dotClass: string; borderClass: string } | null => {
+    let resCategory = '';
+    for (const c of t.comments || []) {
+      const m = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/);
+      if (m) {
+        resCategory = m[1].trim();
+        break;
+      }
+    }
+
+    if (!resCategory && serviceReports) {
+      const report = serviceReports.find(r => r.ticketId === t.id);
+      if (report?.finalStatus) {
+        resCategory = report.finalStatus;
+      }
+    }
+
+    if (!resCategory) {
+      for (const c of t.comments || []) {
+        const m = c.text.match(/Marked ticket as Resolved:\s*(.+)/i);
+        if (m) {
+          resCategory = m[1].split('\n')[0].trim();
+          break;
+        }
+      }
+    }
+
+    if (!resCategory) return null;
+
+    switch (resCategory) {
+      case 'For Equipment Replacement':
+      case 'For Replacement':
+      case 'For Disposal':
+        return {
+          category: resCategory,
+          colorClass: 'text-red-600',
+          badgeClass: 'bg-red-500/10 text-red-600 border-red-500/20',
+          dotClass: 'bg-red-500',
+          borderClass: 'border-red-500'
+        };
+      case 'For Parts Replacement':
+      case 'For Procurement':
+      case 'For Further Assessment':
+        return {
+          category: resCategory,
+          colorClass: 'text-amber-600',
+          badgeClass: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+          dotClass: 'bg-amber-500',
+          borderClass: 'border-amber-500'
+        };
+      case 'Referred to Technician / Service Center':
+      case 'Referred to Service Provider':
+        return {
+          category: resCategory,
+          colorClass: 'text-purple-600',
+          badgeClass: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+          dotClass: 'bg-purple-500',
+          borderClass: 'border-purple-500'
+        };
+      case 'No Issue Found':
+        return {
+          category: resCategory,
+          colorClass: 'text-blue-600',
+          badgeClass: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+          dotClass: 'bg-blue-500',
+          borderClass: 'border-blue-500'
+        };
+      default:
+        return {
+          category: resCategory,
+          colorClass: 'text-green-600',
+          badgeClass: 'bg-green-500/10 text-green-600 border-green-500/20',
+          dotClass: 'bg-green-500',
+          borderClass: 'border-green-500'
+        };
+    }
+  };
+
   const handleAssign = async () => {
     if (selectedAssignee) {
       const result = await ConfirmModal.fire({
@@ -521,11 +600,36 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                 </span>
                               )}
                             </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
-                                #{tkt.ticketNumber}
-                              </span>
-                              <span className="font-bold text-sm text-ink">{tkt.subject}</span>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
+                                  #{tkt.ticketNumber}
+                                </span>
+                                <span className="font-bold text-sm text-ink">{tkt.subject}</span>
+                              </div>
+                              {(() => {
+                                const res = getTicketResolution(tkt);
+                                if (res) {
+                                  return (
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border ml-auto ${res.badgeClass}`}>
+                                      {res.category}
+                                    </span>
+                                  );
+                                } else if (tkt.status === 'RESOLVED') {
+                                  return (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-green-500/10 border border-green-500/20 text-green-600 ml-auto">
+                                      Resolved
+                                    </span>
+                                  );
+                                } else if (tkt.status === 'CLOSED') {
+                                  return (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-bg border border-border text-ink-muted ml-auto">
+                                      Closed
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           </div>
 
@@ -770,17 +874,30 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                             })()}
 
                             {/* Resolved / Closed Node */}
-                            {['RESOLVED', 'CLOSED'].includes(tkt.status) && (
-                              <div className="relative pl-5">
-                                <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${tkt.status === 'CLOSED' ? 'bg-ink-muted' : 'bg-green-500'}`} />
-                                <div className="flex flex-wrap items-baseline gap-2">
-                                  <span className={`text-[10px] font-bold uppercase tracking-widest ${tkt.status === 'CLOSED' ? 'text-ink-muted' : 'text-green-600'}`}>
-                                    Ticket {tkt.status === 'CLOSED' ? 'Closed' : 'Resolved'}
-                                  </span>
-                                  <span className="text-xs text-ink-muted">{format(new Date(tkt.updatedAt), "MMM d, yyyy • h:mm a")}</span>
+                            {['RESOLVED', 'CLOSED'].includes(tkt.status) && (() => {
+                              const res = getTicketResolution(tkt);
+                              const dotColor = tkt.status === 'CLOSED'
+                                ? 'bg-ink-muted'
+                                : (res?.dotClass || 'bg-green-500');
+                              const textColor = tkt.status === 'CLOSED'
+                                ? 'text-ink-muted'
+                                : (res?.colorClass || 'text-green-600');
+                              const labelText = tkt.status === 'CLOSED'
+                                ? (res ? `Ticket Closed • ${res.category}` : 'Ticket Closed')
+                                : (res ? `Ticket Resolved: ${res.category}` : 'Ticket Resolved');
+
+                              return (
+                                <div className="relative pl-5">
+                                  <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${dotColor}`} />
+                                  <div className="flex flex-wrap items-baseline gap-2">
+                                    <span className={`text-[10px] font-bold uppercase tracking-widest ${textColor}`}>
+                                      {labelText}
+                                    </span>
+                                    <span className="text-xs text-ink-muted">{format(new Date(tkt.updatedAt), "MMM d, yyyy • h:mm a")}</span>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </div>
                         </div>
                       );
@@ -1352,13 +1469,30 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                         }
                     }
 
+                    const currentResMeta = (step.key === 'RESOLVED' && (isCompleted || isCurrent))
+                      ? getTicketResolution(ticket)
+                      : null;
+
+                    const dotBorderClass = currentResMeta
+                      ? currentResMeta.borderClass
+                      : (isCompleted ? 'border-green-500' : isCurrent ? 'border-accent' : 'border-border');
+
+                    const stepLabelClass = currentResMeta && isCurrent
+                      ? currentResMeta.colorClass
+                      : (isCompleted ? 'text-ink' : isCurrent ? 'text-accent' : 'text-ink-muted');
+
                     return (
                       <div key={index} className="relative">
-                        <div className={`absolute -left-[32px] top-0.5 w-4 h-4 rounded-full border-[3px] bg-surface z-10 transition-colors ${
-                          isCompleted ? 'border-green-500' : isCurrent ? 'border-accent' : 'border-border'
-                        }`}></div>
+                        <div className={`absolute -left-[32px] top-0.5 w-4 h-4 rounded-full border-[3px] bg-surface z-10 transition-colors ${dotBorderClass}`}></div>
                         <div>
-                          <p className={`text-xs font-bold leading-none ${isCompleted ? 'text-ink' : isCurrent ? 'text-accent' : 'text-ink-muted'}`}>{step.label}</p>
+                          <p className={`text-xs font-bold leading-none ${stepLabelClass}`}>{step.label}</p>
+                          {currentResMeta && (
+                            <div className="mt-1">
+                              <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border inline-block ${currentResMeta.badgeClass}`}>
+                                {currentResMeta.category}
+                              </span>
+                            </div>
+                          )}
                           {timestampStr && (
                              <div className="mt-1">
                                <p className="text-[10px] font-medium text-ink-muted uppercase tracking-widest">{format(new Date(timestampStr), 'MMM d, h:mm a')}</p>
