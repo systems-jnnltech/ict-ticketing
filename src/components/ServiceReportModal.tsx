@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { Ticket, ServiceReport, FinalServiceStatus, ServiceReportStatus } from '../store/mockData';
+import { Ticket, ServiceReport, FinalServiceStatus, ServiceReportStatus, RESOLUTION_OPTIONS } from '../store/mockData';
 import { X, Printer, Save, FileText, CheckCircle2, AlertCircle, Edit3, Eye, ShieldCheck, Sparkles, Building, User, Monitor, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -14,16 +14,7 @@ interface ServiceReportModalProps {
 
 export type PaperSize = 'a4' | 'letter' | 'legal';
 
-const FINAL_STATUS_OPTIONS: FinalServiceStatus[] = [
-  'Resolved',
-  'Repaired',
-  'For Monitoring',
-  'For Further Assessment',
-  'For Replacement',
-  'For Procurement',
-  'For Disposal',
-  'Referred to Service Provider'
-];
+const FINAL_STATUS_OPTIONS: FinalServiceStatus[] = RESOLUTION_OPTIONS.map(o => o.value as FinalServiceStatus);
 
 const REPORT_STATUS_OPTIONS: ServiceReportStatus[] = [
   'Draft',
@@ -44,14 +35,22 @@ const RECOMMENDATION_PRESETS = [
 const getFinalStatusColor = (status: FinalServiceStatus | string) => {
   switch (status) {
     case 'Repaired':
+    case 'Reconfigured':
+    case 'Software Installed / Updated':
+    case 'Component Replaced':
+    case 'User Assistance Provided':
     case 'Resolved':
       return 'text-green-600 print:text-green-600';
-    case 'For Monitoring':
+    case 'Referred to Technician / Service Center':
     case 'Referred to Service Provider':
+    case 'No Issue Found':
+    case 'For Monitoring':
       return 'text-blue-600 print:text-blue-600';
-    case 'For Further Assessment':
+    case 'For Parts Replacement':
     case 'For Procurement':
+    case 'For Further Assessment':
       return 'text-amber-600 print:text-amber-600';
+    case 'For Equipment Replacement':
     case 'For Replacement':
     case 'For Disposal':
       return 'text-red-600 print:text-red-600';
@@ -272,6 +271,8 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   const [reportStatus, setReportStatus] = useState<ServiceReportStatus>('Generated');
   const [actionLogText, setActionLogText] = useState('');
 
+  const selectedResolutionCriteria = RESOLUTION_OPTIONS.find(o => o.value.toLowerCase() === finalStatus?.toLowerCase())?.description || '';
+
   // Initialize or reset form values
   useEffect(() => {
     if (!isOpen) return;
@@ -304,16 +305,36 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
         : `Reported issue: ${ticket.description}. Hardware/software diagnostics conducted on ${asset ? `${asset.brand} ${asset.model}` : 'device'}.`;
       setTechnicalFindings(prefillFindings);
 
+      // Extract resolution metadata and action taken from ticket comments if available
+      let detectedResolution = '';
+      let detectedActionTaken = '';
+      for (const c of ticket.comments || []) {
+        const resMatch = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/);
+        if (resMatch) {
+          detectedResolution = resMatch[1].trim();
+        }
+        const actMatch = c.text.match(/<!-- ACTION_TAKEN:\s*([\s\S]+?)\s*-->/);
+        if (actMatch) {
+          detectedActionTaken = actMatch[1].trim();
+        }
+      }
+
       // Auto-extract actions from comments or recommendations
-      const techComments = (ticket.comments || [])
-        .filter(c => !c.text.startsWith('System: Status changed to'))
-        .map(c => c.text)
-        .join('; ');
-      const prefillActions = techComments || ticket.ictRecommendation || 'Troubleshooting, diagnostic evaluation, system cleaning, and hardware inspection conducted.';
+      const prefillActions = detectedActionTaken || (
+        (ticket.comments || [])
+          .filter(c => !c.text.startsWith('System: Status changed to') && !c.text.startsWith('Action: Assigned ticket') && !c.text.startsWith('Action: Started work'))
+          .map(c => c.text.replace(/<!--[\s\S]*?-->/g, '').trim())
+          .filter(Boolean)
+          .join('; ')
+      ) || ticket.ictRecommendation || 'Troubleshooting, diagnostic evaluation, system cleaning, and hardware inspection conducted.';
       setActionTaken(prefillActions);
 
-      setFinalStatus(ticket.status === 'CLOSED' ? 'Resolved' : 'Repaired');
-      setRecommendation(ticket.ictRecommendation || RECOMMENDATION_PRESETS[0]);
+      const matchedOption = RESOLUTION_OPTIONS.find(o => o.value.toLowerCase() === detectedResolution.toLowerCase());
+      const defaultStatus = (matchedOption?.value as FinalServiceStatus) || 'Repaired';
+      setFinalStatus(defaultStatus);
+      
+      const defaultCriteria = matchedOption?.description || RESOLUTION_OPTIONS.find(o => o.value === defaultStatus)?.description || '';
+      setRecommendation(defaultCriteria || ticket.ictRecommendation || RECOMMENDATION_PRESETS[0]);
       
       setIctHeadName('Engr. Kenneth Jones D. Alforque');
       setOfficeHeadName(department?.officeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
@@ -702,17 +723,29 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
 
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
-                    Final Equipment Status
+                    Final Service Status
                   </label>
                   <select
                     value={finalStatus}
-                    onChange={e => setFinalStatus(e.target.value as FinalServiceStatus)}
+                    onChange={e => {
+                      const newStatus = e.target.value as FinalServiceStatus;
+                      setFinalStatus(newStatus);
+                      const opt = RESOLUTION_OPTIONS.find(o => o.value === newStatus);
+                      if (opt) {
+                        setRecommendation(opt.description);
+                      }
+                    }}
                     className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-xs font-bold text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm cursor-pointer"
                   >
                     {FINAL_STATUS_OPTIONS.map(opt => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                  {selectedResolutionCriteria && (
+                    <p className="text-[10.5px] text-accent font-medium mt-1 leading-snug">
+                      Criteria: {selectedResolutionCriteria}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -822,11 +855,11 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 <p className="text-[10px] text-ink-muted mt-1">Format: <code className="font-mono text-ink">Date/Time : Action Description</code></p>
               </div>
 
-              {/* Field: ICT Recommendation with quick presets */}
+              {/* Field: V. ICT Resolution / Recommendation with quick presets */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted">
-                    ICT Recommendation <span className="text-red-500">*</span>
+                    V. ICT Resolution / Recommendation <span className="text-red-500">*</span>
                   </label>
                   <span className="text-[10px] text-accent font-bold uppercase tracking-wider flex items-center gap-1">
                     <Sparkles className="w-3 h-3" /> Quick Presets
@@ -835,6 +868,15 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 
                 {/* Preset Chips */}
                 <div className="flex flex-wrap gap-1.5 mb-2">
+                  {selectedResolutionCriteria && (
+                    <button
+                      type="button"
+                      onClick={() => setRecommendation(selectedResolutionCriteria)}
+                      className="text-[10px] font-bold bg-accent/10 hover:bg-accent/20 text-accent border border-accent/30 px-2.5 py-1 rounded-lg transition-all text-left"
+                    >
+                      ★ Use Criteria: {finalStatus}
+                    </button>
+                  )}
                   {RECOMMENDATION_PRESETS.map((preset, idx) => (
                     <button
                       key={idx}
@@ -1053,37 +1095,57 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 IV. Technical Assessment & Action Taken
               </div>
-              <div className="border border-black p-2.5 text-[11px] font-sans bg-white">
-                <div className="space-y-1.5">
-                  {displayedActionLog.length > 0 ? (
-                    displayedActionLog.map((item, idx) => (
-                      <div key={idx} className="flex items-start gap-1.5 leading-snug">
-                        <span className="font-mono text-[10.5px] font-bold text-gray-900 shrink-0">
-                          {item.timestamp} :
-                        </span>
-                        <span className="font-medium text-black">
-                          {item.action}
-                        </span>
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-white space-y-2">
+                {actionTaken && (
+                  <div className="pb-2 border-b border-gray-200">
+                    <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">Action Taken / Troubleshooting Conducted:</div>
+                    <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{actionTaken}</p>
+                  </div>
+                )}
+                <div>
+                  <div className="font-bold mb-1 uppercase text-[9.5px] text-gray-800">Activity Timeline & Action Log:</div>
+                  <div className="space-y-1.5">
+                    {displayedActionLog.length > 0 ? (
+                      displayedActionLog.map((item, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5 leading-snug">
+                          <span className="font-mono text-[10.5px] font-bold text-gray-900 shrink-0">
+                            {item.timestamp} :
+                          </span>
+                          <span className="font-medium text-black">
+                            {item.action}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="italic text-gray-500">
+                        {format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a')} : Service activity completed for Ticket #{ticket.ticketNumber}
                       </div>
-                    ))
-                  ) : (
-                    <div className="italic text-gray-500">
-                      {format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a')} : Service activity completed for Ticket #{ticket.ticketNumber}
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* SECTION V: RECOMMENDATION */}
+            {/* SECTION V: ICT RESOLUTION / RECOMMENDATION */}
             <div className="mb-4">
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
-                V. ICT Recommendation
+                V. ICT Resolution / Recommendation
               </div>
-              <div className="border border-black p-2.5 text-[11px] font-sans bg-gray-50 print:bg-transparent">
-                <p className="font-semibold whitespace-pre-wrap leading-relaxed">
-                  {recommendation}
-                </p>
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-gray-50 print:bg-transparent space-y-2">
+                {selectedResolutionCriteria && (
+                  <div>
+                    <span className="font-bold uppercase text-[9.5px] text-gray-800 block mb-0.5">Resolution Criteria:</span>
+                    <p className="font-semibold text-black leading-relaxed">{selectedResolutionCriteria}</p>
+                  </div>
+                )}
+                {recommendation && recommendation !== selectedResolutionCriteria && (
+                  <div className={selectedResolutionCriteria ? "pt-1.5 border-t border-gray-300" : ""}>
+                    <span className="font-bold uppercase text-[9.5px] text-gray-800 block mb-0.5">Recommendation / Technical Advice:</span>
+                    <p className="font-medium whitespace-pre-wrap leading-relaxed text-black">
+                      {recommendation}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
