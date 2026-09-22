@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { ArrowLeft, Clock, User, Monitor, AlertCircle, CheckCircle2, Send, Activity, X, ExternalLink, FileText, Printer, Eye } from 'lucide-react';
+import { ArrowLeft, Clock, User, Monitor, AlertCircle, CheckCircle2, Send, Activity, X, ExternalLink, FileText, Printer, Eye, History, ShieldCheck, Database, FileCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { getTicketSLA } from '../utils/sla';
 import { Toast, ConfirmModal } from '../lib/toast';
@@ -9,7 +9,7 @@ import { DispatchFormModal } from './DispatchFormModal';
 import { ServiceReportModal } from './ServiceReportModal';
 
 export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: () => void }) {
-  const { tickets, users, assets, offices, categories, currentUser, changeTicketStatus, updateTicketPriority, addComment, updateRecommendation, serviceReports } = useAppContext();
+  const { tickets, users, assets, offices, categories, currentUser, changeTicketStatus, updateTicketPriority, addComment, updateRecommendation, serviceReports, assetHistories } = useAppContext();
   const ticket = tickets.find(t => t.id === ticketId);
   const department = offices.find(o => o.id === ticket?.officeId);
   
@@ -55,6 +55,25 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const assetOffice = offices.find(o => o.id === asset?.officeId) || department;
   const category = categories.find(c => c.id === ticket.categoryId);
   const ictStaff = users.filter(u => u.role === 'ICT Support');
+
+  const relatedTickets = asset ? tickets.filter((t) => t.assetId === asset.id || (asset.assetCode && t.assetId === asset.assetCode)) : [];
+  const pastTicketsCount = relatedTickets.filter(t => t.id !== ticket.id).length;
+  const relatedHistories = asset ? (assetHistories || []).filter((h) => h.assetId === asset.id) : [];
+
+  const combinedTimeline = [
+    ...relatedTickets.map((t) => ({
+      id: `ticket-${t.id}`,
+      type: 'ticket' as const,
+      date: new Date(t.createdAt).getTime(),
+      ticket: t
+    })),
+    ...relatedHistories.map((h) => ({
+      id: `history-${h.id}`,
+      type: 'audit' as const,
+      date: new Date(h.createdAt).getTime(),
+      history: h
+    }))
+  ].sort((a, b) => b.date - a.date);
 
   const isAdminOrICT = currentUser?.role === 'Admin' || currentUser?.role === 'ICT Support';
   const hasReferralDetails = ticket.status === 'REFERRED' || (ticket.comments || []).some(c => c.text.includes('referred to external technician') || c.text.includes('DISPATCH_INFO'));
@@ -385,6 +404,450 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                       </p>
                   )}
               </div>
+          </div>
+
+          {/* Service & Audit Timeline for Linked Asset */}
+          <div className="bg-surface rounded-2xl shadow-sm border border-border overflow-hidden">
+            <div className="px-6 py-5 border-b border-border bg-bg/50 flex flex-wrap justify-between items-center gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-bg border border-border text-accent flex items-center justify-center shadow-xs shrink-0">
+                  <History className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-[11px] font-bold text-ink uppercase tracking-widest flex items-center gap-2">
+                    Service & Audit Timeline
+                  </h3>
+                  {asset && (
+                    <p className="text-[11px] text-ink-muted font-medium mt-0.5">
+                      {asset.equipmentType} - {asset.brand} {asset.model} {asset.propertyNumber ? `• Property: ${asset.propertyNumber}` : asset.assetCode ? `• Code: ${asset.assetCode}` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {asset && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAssetModal(true)}
+                    className="text-[10px] font-bold uppercase tracking-widest bg-bg border border-border hover:border-accent text-accent px-2.5 py-1 rounded-md shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
+                    title="View asset specifications"
+                  >
+                    <span>Asset Specs</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                )}
+                <span className="text-[10px] font-mono font-bold uppercase tracking-widest bg-bg border border-border text-ink-muted px-2.5 py-1 rounded-md shadow-xs">
+                  {asset ? `RECORDS: ${combinedTimeline.length}` : 'NO ASSET'}
+                </span>
+              </div>
+            </div>
+
+            <div className="divide-y divide-border">
+              {!asset ? (
+                <div className="p-8 text-center bg-bg/30">
+                  <div className="w-10 h-10 rounded-xl bg-bg border border-border text-ink-muted flex items-center justify-center mx-auto mb-2.5 shadow-xs">
+                    <Monitor className="w-5 h-5" />
+                  </div>
+                  <h4 className="text-xs font-bold text-ink uppercase tracking-wider mb-1">No Equipment Linked</h4>
+                  <p className="text-xs text-ink-muted max-w-md mx-auto">
+                    This ticket has no tagged property or asset code. Once an asset is linked, previous repair interventions and audit trails will appear here automatically.
+                  </p>
+                </div>
+              ) : combinedTimeline.length === 0 ? (
+                <div className="p-8 text-center bg-bg/30">
+                  <p className="text-xs font-medium text-ink-muted">
+                    No service tickets or audit records found for this equipment.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Notice if this is the first service on this equipment */}
+                  {pastTicketsCount === 0 && (
+                    <div className="px-6 py-3 bg-emerald-500/5 border-b border-emerald-500/10 text-emerald-600 flex items-center gap-2 text-xs font-medium">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                      <span><strong>First Recorded Service:</strong> No prior repair tickets were found for this equipment.</span>
+                    </div>
+                  )}
+
+                  {combinedTimeline.map((item) => {
+                    if (item.type === 'ticket' && item.ticket) {
+                      const tkt = item.ticket;
+                      const isCurrent = tkt.id === ticket.id;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-6 md:p-7 transition-colors ${
+                            isCurrent ? 'bg-accent/[0.03] border-l-4 border-l-accent' : 'hover:bg-bg/40'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3 mb-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
+                                #{tkt.ticketNumber}
+                              </span>
+                              <span className="font-bold text-sm text-ink">{tkt.subject}</span>
+                              {isCurrent ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-blue-500/10 border border-blue-500/20 text-blue-600">
+                                  Current Ticket
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-purple-500/10 border border-purple-500/20 text-purple-600">
+                                  Past Repair
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border ${
+                              tkt.status === 'CLOSED' ? 'bg-surface border-border text-ink-muted' :
+                              tkt.status === 'RESOLVED' ? 'bg-green-500/10 border-green-500/20 text-green-500' :
+                              tkt.status === 'ESCALATED' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
+                              tkt.status === 'IN PROGRESS' ? 'bg-orange-500/10 border-orange-500/20 text-orange-500' :
+                              'bg-blue-500/10 border-blue-500/20 text-blue-500'
+                            }`}>
+                              {tkt.status}
+                            </span>
+                          </div>
+
+                          <p className="text-xs font-medium text-ink-muted leading-relaxed mb-4 max-w-4xl line-clamp-2">
+                            {tkt.description}
+                          </p>
+
+                          {/* Compact Timeline Flow */}
+                          <div className="relative border-l-2 border-border ml-2 md:ml-3 space-y-6 py-1 mt-3">
+                            {/* Ticket Created Node */}
+                            <div className="relative pl-5">
+                              <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-border ring-4 ring-surface" />
+                              <div className="flex flex-wrap items-baseline gap-2 mb-0.5">
+                                <span className="text-[10px] font-bold text-ink uppercase tracking-widest">Ticket Created</span>
+                                <span className="text-xs text-ink-muted">{format(new Date(tkt.createdAt), "MMM d, yyyy • h:mm a")}</span>
+                              </div>
+                            </div>
+
+                            {(() => {
+                              const actions = tkt.ictRecommendation ? tkt.ictRecommendation.split(/(?=Taken \d+:)/).filter(Boolean) : [];
+
+                              const parsedActions = actions.map(action => {
+                                const match = action.match(/Taken (\d+):\s+(.*?)\s+by:\s+(.*?)\n(.*)/s);
+                                if (match) {
+                                  return {
+                                    type: 'ict_action',
+                                    attemptNumber: match[1],
+                                    dateStr: match[2],
+                                    date: new Date(match[2]).getTime(),
+                                    by: match[3],
+                                    text: match[4].trim()
+                                  };
+                                }
+                                return {
+                                  type: 'ict_action',
+                                  attemptNumber: '?',
+                                  dateStr: '',
+                                  date: 0,
+                                  by: 'Unknown',
+                                  text: action.trim()
+                                };
+                              });
+
+                              const problemReports = tkt.comments
+                                ?.filter(c => c.text.includes('Problem Still Exists Report:'))
+                                .map(c => {
+                                  const reasonMatch = c.text.match(/Reason: (.*)/);
+                                  const detailsMatch = c.text.match(/Details: (.*)/);
+                                  const isEscalation = c.text.includes('escalated to ICT Head') || c.text.includes('Escalated');
+
+                                  return {
+                                    type: 'problem_report',
+                                    date: new Date(c.createdAt).getTime(),
+                                    dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
+                                    reason: reasonMatch ? reasonMatch[1] : 'Unknown',
+                                    details: detailsMatch ? detailsMatch[1] : '',
+                                    isEscalation,
+                                    text: c.text
+                                  };
+                                }) || [];
+
+                              const escalatedLog = tkt.comments?.find(c => c.text === 'System: Status changed to ESCALATED' || (c.text.includes('Escalated') && !c.text.includes('Problem Still Exists Report:')));
+                              const manualEscalations = [];
+                              if (escalatedLog && !problemReports.some(pr => Math.abs(pr.date - new Date(escalatedLog.createdAt).getTime()) < 5000)) {
+                                manualEscalations.push({
+                                  type: 'manual_escalation',
+                                  date: new Date(escalatedLog.createdAt).getTime(),
+                                  dateStr: format(new Date(escalatedLog.createdAt), "MMM d, yyyy • h:mm a")
+                                });
+                              } else if (!escalatedLog && tkt.status === 'ESCALATED' && problemReports.filter(pr => pr.isEscalation).length === 0) {
+                                manualEscalations.push({
+                                  type: 'manual_escalation',
+                                  date: new Date(tkt.updatedAt).getTime(),
+                                  dateStr: format(new Date(tkt.updatedAt), "MMM d, yyyy • h:mm a")
+                                });
+                              }
+
+                              const referrals = tkt.comments?.filter(c => c.text.includes('Referred to External Technician')).map(c => {
+                                const reasonMatch = c.text.match(/Reason: (.*)/);
+                                const providerComment = tkt.comments?.find(pc => pc.text.includes('EXT_TECH_DETAILS'));
+                                let provider = '';
+                                if (providerComment) {
+                                  const extMatch = providerComment.text.match(/<!-- EXT_TECH_DETAILS: (.*?) -->/);
+                                  if (extMatch) {
+                                    try { provider = JSON.parse(extMatch[1]).serviceProvider || ''; } catch(e){}
+                                  }
+                                }
+                                return {
+                                  type: 'referral',
+                                  date: new Date(c.createdAt).getTime(),
+                                  dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
+                                  reason: reasonMatch ? reasonMatch[1] : 'Unknown',
+                                  provider
+                                };
+                              }) || [];
+
+                              const dispatches = tkt.comments?.filter(c => c.text.includes('DISPATCH_INFO')).map(c => {
+                                let dispatchData = null;
+                                const match = c.text.match(/<!-- DISPATCH_INFO: (.*?) -->/);
+                                if (match) {
+                                  try { dispatchData = JSON.parse(match[1]); } catch(e){}
+                                }
+                                return {
+                                  type: 'dispatch',
+                                  date: new Date(c.createdAt).getTime(),
+                                  dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
+                                  dispatchData
+                                };
+                              }) || [];
+
+                              const repairs = tkt.comments?.filter(c => c.text.includes('REPAIR_INFO')).map(c => {
+                                let repairData = null;
+                                const match = c.text.match(/<!-- REPAIR_INFO: (.*?) -->/);
+                                if (match) {
+                                  try { repairData = JSON.parse(match[1]); } catch(e){}
+                                }
+                                return {
+                                  type: 'repair',
+                                  date: new Date(c.createdAt).getTime(),
+                                  dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
+                                  repairData
+                                };
+                              }) || [];
+
+                              const allEvents = [...parsedActions, ...problemReports, ...manualEscalations, ...referrals, ...dispatches, ...repairs].sort((a, b) => a.date - b.date);
+
+                              return (
+                                <>
+                                  {allEvents.map((ev, i) => (
+                                    <React.Fragment key={i}>
+                                      {ev.type === 'ict_action' && (
+                                        <div className="relative pl-5">
+                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-accent ring-4 ring-surface" />
+                                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                                            <span className="text-[10px] font-bold text-ink uppercase tracking-widest">Attempt #{ev.attemptNumber}</span>
+                                            <span className="text-xs text-ink-muted">{ev.dateStr}</span>
+                                          </div>
+                                          <div className="text-xs text-ink-muted leading-relaxed">
+                                            <span className="font-semibold text-ink">
+                                              {(ev.by as string).includes('ICT Head') || (ev.by as string).includes('Admin') ? 'ICT Head' : 'ICT'}:
+                                            </span>{' '}
+                                            {ev.text as string}
+                                          </div>
+                                          <div className="mt-1 text-[9px] font-bold uppercase tracking-widest text-ink-muted">
+                                            By: {ev.by as string}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {ev.type === 'problem_report' && (
+                                        <div className="relative pl-5">
+                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-red-500 ring-4 ring-surface" />
+                                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                                            <span className="text-[10px] font-bold text-red-500 uppercase tracking-widest">Problem Still Exists</span>
+                                            <span className="text-xs text-red-500/70">{ev.dateStr}</span>
+                                          </div>
+                                          <div className="text-xs text-ink-muted leading-relaxed">
+                                            <span className="font-semibold text-ink">Reason:</span> {ev.reason as string}
+                                            {ev.details && (
+                                              <div className="mt-0.5">
+                                                <span className="font-semibold text-ink">Details:</span> {ev.details as string}
+                                              </div>
+                                            )}
+                                          </div>
+                                          {ev.isEscalation && (
+                                            <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 rounded text-[9px] font-bold uppercase tracking-widest">
+                                              <span>🚨</span> Escalated to ICT Head
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {ev.type === 'manual_escalation' && (
+                                        <div className="relative pl-5">
+                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-red-500 ring-4 ring-surface" />
+                                          <div className="flex flex-wrap items-baseline gap-2">
+                                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-widest flex items-center gap-1">
+                                              <span>🚨</span> Escalated to ICT Head
+                                            </span>
+                                            <span className="text-xs text-red-500/70">{ev.dateStr}</span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {ev.type === 'referral' && (
+                                        <div className="relative pl-5">
+                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-purple-500 ring-4 ring-surface" />
+                                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                                            <span className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Referred to Ext. Tech</span>
+                                            <span className="text-xs text-purple-600/70">{ev.dateStr}</span>
+                                          </div>
+                                          <div className="text-xs text-ink-muted leading-relaxed">
+                                            {ev.provider && (
+                                              <div><span className="font-semibold text-ink">Provider:</span> {ev.provider as string}</div>
+                                            )}
+                                            <div><span className="font-semibold text-ink">Reason:</span> {ev.reason as string}</div>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {ev.type === 'dispatch' && (
+                                        <div className="relative pl-5">
+                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-blue-500 ring-4 ring-surface" />
+                                          <div className="flex flex-wrap items-baseline gap-2 mb-1.5">
+                                            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Dispatch Information</span>
+                                            <span className="text-xs text-blue-600/70">{ev.dateStr}</span>
+                                          </div>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-ink-muted bg-bg/50 p-3 rounded-xl border border-border">
+                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Released</span>{(ev.dispatchData as any)?.dateReleased ? format(new Date((ev.dispatchData as any).dateReleased), 'MMM d, yyyy h:mm a') : '-'}</div>
+                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">By</span>{(ev.dispatchData as any)?.releasedBy || '-'}</div>
+                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Received By (Tech)</span>{(ev.dispatchData as any)?.receivedBy || '-'}</div>
+                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Contact No.</span>{(ev.dispatchData as any)?.technicianContact || '-'}</div>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {ev.type === 'repair' && (
+                                        <div className="relative pl-5">
+                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-green-500 ring-4 ring-surface" />
+                                          <div className="flex flex-wrap items-baseline gap-2 mb-1.5">
+                                            <span className="text-[10px] font-bold text-green-600 uppercase tracking-widest">Repair / Return Information</span>
+                                            <span className="text-xs text-green-600/70">{ev.dateStr}</span>
+                                          </div>
+                                          <div className="bg-bg/50 p-3 rounded-xl border border-border">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-ink-muted mb-2">
+                                              <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Returned</span>{(ev.repairData as any)?.dateReturned ? format(new Date((ev.repairData as any).dateReturned), 'MMM d, yyyy h:mm a') : '-'}</div>
+                                              <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Status</span>{(ev.repairData as any)?.repairStatus || '-'}</div>
+                                            </div>
+                                            <div className="space-y-1.5 text-xs text-ink-muted border-t border-border pt-2">
+                                              {((ev.repairData as any)?.technicianFindings) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Findings</span>{(ev.repairData as any)?.technicianFindings}</div>}
+                                              {((ev.repairData as any)?.actionPerformed) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Action Performed</span>{(ev.repairData as any)?.actionPerformed}</div>}
+                                              {((ev.repairData as any)?.partsReplaced) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Parts Replaced</span>{(ev.repairData as any)?.partsReplaced}</div>}
+                                              {((ev.repairData as any)?.finalRemarks) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Remarks</span>{(ev.repairData as any)?.finalRemarks}</div>}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </React.Fragment>
+                                  ))}
+                                </>
+                              );
+                            })()}
+
+                            {/* Resolved / Closed Node */}
+                            {['RESOLVED', 'CLOSED'].includes(tkt.status) && (
+                              <div className="relative pl-5">
+                                <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${tkt.status === 'CLOSED' ? 'bg-ink-muted' : 'bg-green-500'}`} />
+                                <div className="flex flex-wrap items-baseline gap-2">
+                                  <span className={`text-[10px] font-bold uppercase tracking-widest ${tkt.status === 'CLOSED' ? 'text-ink-muted' : 'text-green-600'}`}>
+                                    Ticket {tkt.status === 'CLOSED' ? 'Closed' : 'Resolved'}
+                                  </span>
+                                  <span className="text-xs text-ink-muted">{format(new Date(tkt.updatedAt), "MMM d, yyyy • h:mm a")}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item.type === 'audit' && item.history) {
+                      const history = item.history;
+                      let parsedChanges: { performedByName?: string; diffs?: { field: string; from: string; to: string }[]; summary?: string } = {};
+                      try {
+                        parsedChanges = JSON.parse(history.changes);
+                      } catch (e) {
+                        parsedChanges = { summary: history.changes };
+                      }
+                      const diffs = parsedChanges.diffs || [];
+                      const actorName = parsedChanges.performedByName || history.performedByName || 'Admin';
+
+                      return (
+                        <div key={item.id} className="p-6 md:p-7 hover:bg-bg/40 transition-colors">
+                          <div className="flex items-start justify-between mb-2.5">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className={`font-bold text-xs font-mono tracking-wider px-2 py-0.5 rounded border flex items-center gap-1.5 ${
+                                history.action === 'AUDITED'
+                                  ? 'bg-purple-500/10 text-purple-600 border-purple-500/20'
+                                  : history.action === 'CREATED'
+                                  ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                              }`}>
+                                {history.action === 'AUDITED' && <ShieldCheck className="w-3.5 h-3.5" />}
+                                {history.action === 'CREATED' && <Database className="w-3.5 h-3.5" />}
+                                {history.action === 'UPDATED' && <FileCheck className="w-3.5 h-3.5" />}
+                                {history.action === 'AUDITED' ? 'PHYSICAL AUDIT' : history.action === 'CREATED' ? 'REGISTRATION' : 'RECORD UPDATE'}
+                              </span>
+                              <span className="font-bold text-sm text-ink">
+                                {history.action === 'AUDITED' 
+                                  ? 'Physical Inventory Audit Recorded' 
+                                  : history.action === 'CREATED'
+                                  ? 'Equipment Registered in Municipal Database'
+                                  : 'Asset Specification & Profile Updated'}
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border bg-surface border-border text-ink-muted">
+                              AUDIT LOG
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-3">
+                            <span>Recorded by: <strong className="text-ink font-semibold">{actorName}</strong></span>
+                            <span>•</span>
+                            <span>{format(new Date(history.createdAt), "MMM d, yyyy • h:mm a")}</span>
+                          </div>
+
+                          {diffs.length > 0 ? (
+                            <div className="bg-bg/60 border border-border rounded-xl overflow-hidden shadow-xs">
+                              <div className="px-3.5 py-1.5 bg-bg border-b border-border text-[9px] font-bold uppercase tracking-widest text-ink-muted">
+                                Documented Changes ({diffs.length})
+                              </div>
+                              <div className="p-3 divide-y divide-border/60">
+                                {diffs.map((diff: any, idx: number) => (
+                                  <div key={idx} className="py-2 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1.5">
+                                    <span className="font-bold text-ink sm:w-1/3">{diff.field}</span>
+                                    <div className="flex items-center gap-2 font-mono sm:w-2/3 flex-wrap">
+                                      <span className="text-red-500/80 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20 line-through truncate max-w-[200px]" title={diff.from}>
+                                        {diff.from}
+                                      </span>
+                                      <span className="text-ink-muted">➔</span>
+                                      <span className="text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold truncate max-w-[200px]" title={diff.to}>
+                                        {diff.to}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-bg/50 border border-border rounded-xl p-3 text-xs text-ink-muted italic">
+                              {parsedChanges.summary || 'Equipment profile details updated.'}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
