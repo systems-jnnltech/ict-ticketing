@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { Ticket, ServiceReport, FinalServiceStatus, ServiceReportStatus, RESOLUTION_OPTIONS } from '../store/mockData';
+import { Ticket, ServiceReport, FinalServiceStatus, ServiceReportStatus, RESOLUTION_OPTIONS, mockOffices } from '../store/mockData';
 import { X, Printer, Save, FileText, CheckCircle2, AlertCircle, Edit3, Eye, ShieldCheck, Sparkles, Building, User, Monitor, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -98,7 +98,13 @@ export function getActionLogEntries(
       return { cleanText: 'Started work on the ticket', phase: 3, key: 'started_work' };
     }
     if (lower.includes('marked ticket as') || lower.includes('resolved') || lower.includes('repaired')) {
-      return { cleanText: clean, phase: 5, key: 'resolved' };
+      const targetStatus = (finalStatusText && finalStatusText !== 'Resolved') ? finalStatusText : '';
+      if (targetStatus && targetStatus.toLowerCase() === 'repaired') {
+        return { cleanText: 'Marked ticket as Repaired', phase: 5, key: 'resolved' };
+      } else if (targetStatus) {
+        return { cleanText: `Marked ticket as ${targetStatus}`, phase: 5, key: 'resolved' };
+      }
+      return { cleanText: 'Marked ticket as Resolved', phase: 5, key: 'resolved' };
     }
     if (lower.includes('closed ticket') || lower.includes('officially closed')) {
       return { cleanText: clean, phase: 6, key: 'closed' };
@@ -146,7 +152,40 @@ export function getActionLogEntries(
     });
   }
 
-  // 3. Fallbacks ONLY if comments do not already contain these lifecycle events:
+  // 3. Process actions from ticket.ictRecommendation (e.g. Taken 1: Sep 17, 2026 11:18 AM by: ICT Support (Zhar Ian Anque))
+  if (ticket.ictRecommendation) {
+    const actions = ticket.ictRecommendation.split(/(?=Taken \d+:)/).filter(Boolean);
+    actions.forEach(act => {
+      const match = act.match(/Taken (\d+):\s+(.*?)\s+by:\s+(.*?)\n([\s\S]*)/);
+      if (match) {
+        const attemptNum = match[1];
+        const dateStr = match[2];
+        const byWho = match[3].trim();
+        const actionNotes = match[4].trim().replace(/\r?\n/g, ' ');
+        
+        let entryTime = new Date(dateStr);
+        if (isNaN(entryTime.getTime())) {
+          entryTime = new Date(ticket.updatedAt || ticket.createdAt);
+        }
+
+        rawEntries.push({
+          time: entryTime,
+          text: `Taken ${attemptNum} by ${byWho}: ${actionNotes}`,
+          phase: 4,
+          key: `taken_${attemptNum}_${actionNotes.substring(0, 20).toLowerCase()}`
+        });
+      } else if (act.trim()) {
+        rawEntries.push({
+          time: new Date(ticket.updatedAt || ticket.createdAt),
+          text: `ICT Action: ${act.trim().replace(/\r?\n/g, ' ')}`,
+          phase: 4,
+          key: `ict_rec_${act.substring(0, 20).toLowerCase()}`
+        });
+      }
+    });
+  }
+
+  // 4. Fallbacks ONLY if comments do not already contain these lifecycle events:
   // Fallback for Assigned
   if (!hasActionInComments('assigned') && (ticket.assignedToId || assigneeName)) {
     const assignedHistory = ticket.statusHistory?.find(h => h.status === 'ASSIGNED');
@@ -175,9 +214,13 @@ export function getActionLogEntries(
   if (!hasActionInComments('resolved') && ['RESOLVED', 'CLOSED'].includes(ticket.status)) {
     const resolvedHistory = ticket.statusHistory?.find(h => h.status === 'RESOLVED');
     const resTime = resolvedHistory?.timestamp || ticket.updatedAt || ticket.createdAt;
+    const targetStatus = (finalStatusText && finalStatusText !== 'Resolved') ? finalStatusText : '';
+    const resolvedText = targetStatus 
+      ? (targetStatus.toLowerCase() === 'repaired' ? 'Marked ticket as Repaired' : `Marked ticket as ${targetStatus}`)
+      : 'Marked ticket as Resolved';
     rawEntries.push({
       time: new Date(resTime),
-      text: `Marked ticket as ${finalStatusText || 'Repaired / Resolved'}`,
+      text: resolvedText,
       phase: 5,
       key: 'resolved'
     });
@@ -255,7 +298,32 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   const requester = users.find(u => u.id === ticket.requesterId);
   const assignee = users.find(u => u.id === ticket.assignedToId);
   const asset = assets.find(a => a.id === ticket.assetId || a.assetCode === ticket.assetId);
-  const department = offices.find(o => o.id === ticket.officeId);
+  // Robust department matching
+  const department = offices.find(o => o.id === ticket.officeId) ||
+    offices.find(o => o.id === asset?.officeId) ||
+    offices.find(o => o.id === requester?.officeId) ||
+    offices.find(o => {
+      const lowerName = o.name.toLowerCase();
+      const lowerAcronym = (o.acronym || '').toLowerCase();
+      const reqName = (requester?.name || '').toLowerCase();
+      return (reqName && (reqName.includes(lowerName) || (lowerAcronym && reqName.includes(lowerAcronym)))) ||
+             (lowerName.includes('planning') && reqName.includes('planning'));
+    }) ||
+    mockOffices.find(m => m.id === ticket.officeId || (requester?.name && requester.name.toLowerCase().includes(m.name.toLowerCase())));
+
+  const matchedMock = mockOffices.find(m => 
+    (department?.id && m.id === department.id) ||
+    (department?.name && m.name.toLowerCase() === department.name.toLowerCase()) ||
+    (department?.acronym && m.acronym?.toLowerCase() === department.acronym.toLowerCase()) ||
+    (ticket.officeId && m.id === ticket.officeId) ||
+    (requester?.name && (
+      (m.name.toLowerCase().includes('planning') && requester.name.toLowerCase().includes('planning')) ||
+      (m.acronym && requester.name.toLowerCase().includes(m.acronym.toLowerCase())) ||
+      requester.name.toLowerCase().includes(m.name.toLowerCase())
+    ))
+  );
+
+  const resolvedOfficeHead = department?.officeHead || matchedMock?.officeHead || '';
   const category = categories.find(c => c.id === ticket.categoryId);
 
   // Form states
@@ -277,8 +345,31 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   useEffect(() => {
     if (!isOpen) return;
 
-    const defaultLogs = getActionLogEntries(ticket, assignee?.name, existingReport?.finalStatus || 'Resolved');
+    // Detect resolution from ticket comments if available
+    let detectedResolution = '';
+    let detectedActionTaken = '';
+    for (const c of ticket.comments || []) {
+      const resMatch = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/);
+      if (resMatch) {
+        detectedResolution = resMatch[1].trim();
+      }
+      const actMatch = c.text.match(/<!-- ACTION_TAKEN:\s*([\s\S]+?)\s*-->/);
+      if (actMatch) {
+        detectedActionTaken = actMatch[1].trim();
+      }
+    }
+
+    const matchedOption = RESOLUTION_OPTIONS.find(o => o.value.toLowerCase() === detectedResolution.toLowerCase());
+    const effectiveStatus = existingReport?.finalStatus || (matchedOption?.value as FinalServiceStatus) || (detectedResolution as FinalServiceStatus) || 'Resolved';
+
+    const defaultLogs = getActionLogEntries(ticket, assignee?.name, effectiveStatus);
     const defaultLogString = defaultLogs.map(e => `${e.timestamp} : ${e.action}`).join('\n');
+
+    const defaultHead = resolvedOfficeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Custodian');
+    const isPlaceholderHead = (name?: string) => 
+      !name || 
+      name.includes('Authorized Representative') || 
+      name.includes('Authorized Office Representative');
 
     if (existingReport) {
       setReportNumber(existingReport.reportNumber);
@@ -289,7 +380,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       setFinalStatus(existingReport.finalStatus);
       setRecommendation(existingReport.recommendation);
       setIctHeadName(existingReport.ictHeadName || 'Engr. Kenneth Jones D. Alforque');
-      setOfficeHeadName(existingReport.officeHeadName || department?.officeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
+      setOfficeHeadName(!isPlaceholderHead(existingReport.officeHeadName) ? existingReport.officeHeadName : defaultHead);
       setReportStatus(existingReport.reportStatus);
       setActionLogText(defaultLogString);
       setActiveTab('preview');
@@ -304,20 +395,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
         ? `Assessment: ${ticket.ictRecommendation}`
         : `Reported issue: ${ticket.description}. Hardware/software diagnostics conducted on ${asset ? `${asset.brand} ${asset.model}` : 'device'}.`;
       setTechnicalFindings(prefillFindings);
-
-      // Extract resolution metadata and action taken from ticket comments if available
-      let detectedResolution = '';
-      let detectedActionTaken = '';
-      for (const c of ticket.comments || []) {
-        const resMatch = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/);
-        if (resMatch) {
-          detectedResolution = resMatch[1].trim();
-        }
-        const actMatch = c.text.match(/<!-- ACTION_TAKEN:\s*([\s\S]+?)\s*-->/);
-        if (actMatch) {
-          detectedActionTaken = actMatch[1].trim();
-        }
-      }
 
       // Auto-extract actions from comments or recommendations
       const prefillActions = detectedActionTaken || (
@@ -335,15 +412,13 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       ) || ticket.ictRecommendation || 'Troubleshooting, diagnostic evaluation, system cleaning, and hardware inspection conducted.';
       setActionTaken(prefillActions);
 
-      const matchedOption = RESOLUTION_OPTIONS.find(o => o.value.toLowerCase() === detectedResolution.toLowerCase());
-      const defaultStatus = (matchedOption?.value as FinalServiceStatus) || 'Repaired';
-      setFinalStatus(defaultStatus);
+      setFinalStatus(effectiveStatus);
       
-      const defaultCriteria = matchedOption?.description || RESOLUTION_OPTIONS.find(o => o.value === defaultStatus)?.description || '';
+      const defaultCriteria = matchedOption?.description || RESOLUTION_OPTIONS.find(o => o.value === effectiveStatus)?.description || '';
       setRecommendation(defaultCriteria || ticket.ictRecommendation || RECOMMENDATION_PRESETS[0]);
       
       setIctHeadName('Engr. Kenneth Jones D. Alforque');
-      setOfficeHeadName(department?.officeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Authorized Representative'));
+      setOfficeHeadName(defaultHead);
       setReportStatus('Generated');
       setActionLogText(defaultLogString);
       setActiveTab('form');
@@ -1159,7 +1234,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 <div className="flex flex-col justify-end text-center">
                   <div className="text-[9.5px] uppercase font-bold text-gray-700 mb-10">Received & Noted by:</div>
                   <div className="border-b border-black font-bold uppercase text-[11.5px] pb-0.5">
-                    {officeHeadName || 'Authorized Office Representative'}
+                    {officeHeadName || resolvedOfficeHead || 'Head of Office / Custodian'}
                   </div>
                   <div className="text-[9.5px] text-gray-700 mt-0.5">Head of Office / Custodian</div>
                   <div className="text-[8.5px] text-gray-500 mt-0.5">Date: ____________________</div>
