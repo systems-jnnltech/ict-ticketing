@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
+import { RESOLUTION_OPTIONS } from '../store/mockData';
 import { ArrowLeft, Clock, User, Monitor, AlertCircle, CheckCircle2, Send, Activity, X, ExternalLink, FileText, Printer, Eye, History, ShieldCheck, Database, FileCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { getTicketSLA } from '../utils/sla';
@@ -21,6 +22,10 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const [showReferralModal, setShowReferralModal] = useState(false);
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [showServiceReportModal, setShowServiceReportModal] = useState(false);
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [selectedResolution, setSelectedResolution] = useState('Repaired');
+  const [resolveActionTaken, setResolveActionTaken] = useState('');
+  const [isResolving, setIsResolving] = useState(false);
   const [referralData, setReferralData] = useState({
     reason: 'Hardware repair requires specialized technician',
   });
@@ -139,6 +144,28 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
     setIsEditingRecommendation(false);
     setRecommendationText('');
     Toast.fire({ icon: 'success', title: 'Recommendation added' });
+  };
+
+  const handleConfirmResolve = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!ticket) return;
+    setIsResolving(true);
+    try {
+      changeTicketStatus(ticket.id, 'RESOLVED', ticket.assignedToId);
+      
+      const actionText = resolveActionTaken.trim()
+        ? `Action: Marked ticket as Resolved: ${selectedResolution}\nAction Taken: ${resolveActionTaken.trim()}\n<!-- RESOLUTION: ${selectedResolution} -->\n<!-- ACTION_TAKEN: ${resolveActionTaken.trim()} -->`
+        : `Action: Marked ticket as Resolved: ${selectedResolution}\n<!-- RESOLUTION: ${selectedResolution} -->`;
+      
+      await addComment(ticket.id, actionText);
+      setShowResolveModal(false);
+      setResolveActionTaken('');
+      Toast.fire({ icon: 'success', title: `Ticket marked as Resolved (${selectedResolution})` });
+    } catch (err: any) {
+      Toast.fire({ icon: 'error', title: 'Failed to resolve ticket' });
+    } finally {
+      setIsResolving(false);
+    }
   };
 
   const inProgressCount = ticket.comments?.filter(c => c.text === 'System: Status changed to IN PROGRESS').length || 0;
@@ -1029,14 +1056,14 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                                     });
                                                     if (confirmResult.isConfirmed) {
                                                         changeTicketStatus(ticket.id, 'CLOSED', ticket.assignedToId);
-                                                        addComment(ticket.id, 'Action: External repair completed, ticket permanently closed');
+                                                        addComment(ticket.id, 'Action: External repair completed, ticket permanently closed\n<!-- RESOLUTION: Referred to Technician / Service Center -->');
                                                         Toast.fire({ icon: 'success', title: 'Ticket Closed' });
                                                     }
                                                 } else {
-                                                    handleStatusUpdate('RESOLVED', 'Marked ticket as Repaired / Resolved');
+                                                    setShowResolveModal(true);
                                                 }
                                             }}
-                                            className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95"
+                                            className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
                                         >
                                             <CheckCircle2 className="w-4 h-4" /> {ticket.status === 'REFERRED' ? 'Mark Resolved & Close' : 'Mark Resolved'}
                                         </button>
@@ -1115,7 +1142,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                 </button>
                             )}
                             {ticket.status === 'IN PROGRESS' && (
-                                <button onClick={() => handleStatusUpdate('RESOLVED', 'Marked ticket as Repaired / Resolved')} className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95">
+                                <button onClick={() => setShowResolveModal(true)} className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer">
                                     <CheckCircle2 className="w-4 h-4"/> Mark Resolved
                                 </button>
                             )}
@@ -1571,6 +1598,105 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
           onClose={() => setShowServiceReportModal(false)}
           existingReportId={existingServiceReport?.id}
         />
+      )}
+
+      {/* Resolve Ticket Modal */}
+      {showResolveModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface rounded-2xl border border-border shadow-2xl max-w-lg w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-5 border-b border-border bg-bg/50 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-green-500/10 text-green-600 border border-green-500/20 flex items-center justify-center">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-ink uppercase tracking-wider">
+                    Resolve Ticket #{ticket.ticketNumber}
+                  </h3>
+                  <p className="text-[11px] text-ink-muted">Select the technical resolution outcome for this service</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResolveModal(false)}
+                className="w-7 h-7 rounded-lg bg-bg border border-border text-ink-muted hover:text-ink flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleConfirmResolve} className="p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1.5">
+                  Resolution Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedResolution}
+                  onChange={(e) => setSelectedResolution(e.target.value)}
+                  className="w-full px-4 py-3 bg-bg border border-border rounded-xl text-xs font-bold text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm cursor-pointer"
+                >
+                  {RESOLUTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Live Criteria Description Box */}
+              {(() => {
+                const selectedOpt = RESOLUTION_OPTIONS.find(o => o.value === selectedResolution);
+                return selectedOpt ? (
+                  <div className="p-3.5 bg-bg/70 border border-border rounded-xl text-xs space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-accent block">
+                      Description / Criteria:
+                    </span>
+                    <p className="text-ink-muted leading-relaxed font-medium">
+                      {selectedOpt.description}
+                    </p>
+                  </div>
+                ) : null;
+              })()}
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1.5">
+                  Action Taken / Troubleshooting Details
+                </label>
+                <textarea
+                  rows={3}
+                  value={resolveActionTaken}
+                  onChange={(e) => setResolveActionTaken(e.target.value)}
+                  placeholder="Detail the troubleshooting conducted, parts tested or replaced, configuration changes..."
+                  className="w-full p-3.5 bg-bg border border-border rounded-xl text-xs font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm resize-none"
+                />
+                <p className="text-[10px] text-ink-muted mt-1 italic">
+                  This action taken will be automatically recorded in the activity log and prefilled into Section IV & V of the ICT Technical Service Report.
+                </p>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setShowResolveModal(false)}
+                  className="px-5 py-2.5 bg-bg border border-border text-ink-muted rounded-xl text-[11px] font-bold uppercase tracking-widest hover:text-ink transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResolving}
+                  className="px-5 py-2.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isResolving ? 'Resolving...' : 'Confirm Resolution'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
