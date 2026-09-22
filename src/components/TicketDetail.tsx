@@ -482,31 +482,24 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                             isCurrent ? 'bg-accent/[0.03] border-l-4 border-l-accent' : 'hover:bg-bg/40'
                           }`}
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-3 mb-2.5">
+                          <div className="mb-2.5 space-y-1.5">
+                            <div>
+                              {isCurrent ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-blue-500/10 border border-blue-500/20 text-blue-600 inline-block">
+                                  Current Ticket
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-purple-500/10 border border-purple-500/20 text-purple-600 inline-block">
+                                  Past Repair
+                                </span>
+                              )}
+                            </div>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
                                 #{tkt.ticketNumber}
                               </span>
                               <span className="font-bold text-sm text-ink">{tkt.subject}</span>
-                              {isCurrent ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-blue-500/10 border border-blue-500/20 text-blue-600">
-                                  Current Ticket
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-purple-500/10 border border-purple-500/20 text-purple-600">
-                                  Past Repair
-                                </span>
-                              )}
                             </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border ${
-                              tkt.status === 'CLOSED' ? 'bg-surface border-border text-ink-muted' :
-                              tkt.status === 'RESOLVED' ? 'bg-green-500/10 border-green-500/20 text-green-500' :
-                              tkt.status === 'ESCALATED' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
-                              tkt.status === 'IN PROGRESS' ? 'bg-orange-500/10 border-orange-500/20 text-orange-500' :
-                              'bg-blue-500/10 border-blue-500/20 text-blue-500'
-                            }`}>
-                              {tkt.status}
-                            </span>
                           </div>
 
                           <p className="text-xs font-medium text-ink-muted leading-relaxed mb-4 max-w-4xl line-clamp-2">
