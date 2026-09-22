@@ -280,9 +280,71 @@ export function updateAsset(id: string, updates: Partial<Omit<Asset, 'id'>>) {
   );
 }
 
+export interface ResolutionOption {
+  value: string;
+  label: string;
+  description: string;
+}
+
+export const RESOLUTION_OPTIONS: ResolutionOption[] = [
+  {
+    value: 'Repaired',
+    label: 'Repaired',
+    description: 'Issue corrected through hardware repair or troubleshooting.'
+  },
+  {
+    value: 'Reconfigured',
+    label: 'Reconfigured',
+    description: 'Issue corrected through settings, configuration, drivers, network setup, etc.'
+  },
+  {
+    value: 'Software Installed / Updated',
+    label: 'Software Installed / Updated',
+    description: 'Installation, reinstallation, or update resolved the issue.'
+  },
+  {
+    value: 'Component Replaced',
+    label: 'Component Replaced',
+    description: 'Defective part replaced using an available component.'
+  },
+  {
+    value: 'Referred to Technician / Service Center',
+    label: 'Referred to Technician / Service Center',
+    description: 'Requires specialized or external repair.'
+  },
+  {
+    value: 'For Parts Replacement',
+    label: 'For Parts Replacement',
+    description: 'Requires procurement/replacement of a component before repair can be completed.'
+  },
+  {
+    value: 'For Equipment Replacement',
+    label: 'For Equipment Replacement',
+    description: 'Equipment should be replaced rather than repaired.'
+  },
+  {
+    value: 'User Assistance Provided',
+    label: 'User Assistance Provided',
+    description: 'Resolved through guidance or user support; no repair required.'
+  },
+  {
+    value: 'No Issue Found',
+    label: 'No Issue Found',
+    description: 'Inspection/testing found no fault.'
+  }
+];
+
 export type FinalServiceStatus = 
-  | 'Resolved'
   | 'Repaired'
+  | 'Reconfigured'
+  | 'Software Installed / Updated'
+  | 'Component Replaced'
+  | 'Referred to Technician / Service Center'
+  | 'For Parts Replacement'
+  | 'For Equipment Replacement'
+  | 'User Assistance Provided'
+  | 'No Issue Found'
+  | 'Resolved'
   | 'For Monitoring'
   | 'For Further Assessment'
   | 'For Replacement'
