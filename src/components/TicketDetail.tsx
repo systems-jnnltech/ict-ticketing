@@ -152,6 +152,38 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
           }
         });
       } else if (isAction) {
+        let actionDisplayText = displayText;
+        const lower = displayText.toLowerCase();
+        if (
+          lower.includes('marked ticket as') ||
+          lower.includes('repaired / resolved') ||
+          lower.includes('resolved') ||
+          lower.includes('repaired') ||
+          c.text.includes('<!-- RESOLUTION:')
+        ) {
+          const resFromComment = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/)?.[1]?.trim();
+          const resFromText = displayText.match(/Marked ticket as Resolved:\s*([^\n]+)/i)?.[1]?.trim()
+            || displayText.match(/Marked ticket as\s*([^\n]+)/i)?.[1]?.trim();
+          const cleanResFromText = resFromText && !resFromText.toLowerCase().includes('repaired / resolved') ? resFromText : undefined;
+          
+          const targetCategory = resFromComment || cleanResFromText || getTicketResolutionMeta(ticket)?.category;
+          
+          if (targetCategory) {
+            const targetLabel = targetCategory.toLowerCase() === 'repaired'
+              ? 'Marked ticket as Repaired'
+              : `Marked ticket as ${targetCategory}`;
+            
+            const actionTakenMatch = displayText.match(/Action Taken:\s*([\s\S]+)/i);
+            if (actionTakenMatch) {
+              actionDisplayText = `${targetLabel}\nAction Taken: ${actionTakenMatch[1].trim()}`;
+            } else {
+              actionDisplayText = targetLabel;
+            }
+          } else if (displayText.includes('Marked ticket as Repaired / Resolved')) {
+            actionDisplayText = displayText.replace('Marked ticket as Repaired / Resolved', 'Marked ticket as Resolved');
+          }
+        }
+
         events.push({
           id: `action-${c.id}`,
           type: 'action',
@@ -159,7 +191,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
           data: {
             comment: c,
             user: commentUser,
-            text: displayText
+            text: actionDisplayText
           }
         });
       } else {
@@ -338,9 +370,13 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
     try {
       changeTicketStatus(ticket.id, 'RESOLVED', ticket.assignedToId);
       
+      const resLabel = selectedResolution.toLowerCase() === 'repaired'
+        ? 'Marked ticket as Repaired'
+        : `Marked ticket as ${selectedResolution}`;
+        
       const actionText = resolveActionTaken.trim()
-        ? `Action: Marked ticket as Resolved: ${selectedResolution}\nAction Taken: ${resolveActionTaken.trim()}\n<!-- RESOLUTION: ${selectedResolution} -->\n<!-- ACTION_TAKEN: ${resolveActionTaken.trim()} -->`
-        : `Action: Marked ticket as Resolved: ${selectedResolution}\n<!-- RESOLUTION: ${selectedResolution} -->`;
+        ? `Action: ${resLabel}\nAction Taken: ${resolveActionTaken.trim()}\n<!-- RESOLUTION: ${selectedResolution} -->\n<!-- ACTION_TAKEN: ${resolveActionTaken.trim()} -->`
+        : `Action: ${resLabel}\n<!-- RESOLUTION: ${selectedResolution} -->`;
       
       await addComment(ticket.id, actionText);
       setShowResolveModal(false);
