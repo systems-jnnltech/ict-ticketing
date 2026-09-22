@@ -387,3 +387,92 @@ export interface AssetHistory {
 }
 
 export let mockAssetHistory: AssetHistory[] = [];
+
+export interface TicketResolutionMeta {
+  category: string;
+  colorClass: string;
+  badgeClass: string;
+  dotClass: string;
+  borderClass: string;
+}
+
+export function getTicketResolution(
+  t: Ticket,
+  reports?: ServiceReport[]
+): TicketResolutionMeta | null {
+  let resCategory = '';
+  for (const c of t.comments || []) {
+    const m = c.text.match(/<!-- RESOLUTION:\s*(.+?)\s*-->/);
+    if (m) {
+      resCategory = m[1].trim();
+      break;
+    }
+  }
+
+  if (!resCategory && reports) {
+    const report = reports.find(r => r.ticketId === t.id);
+    if (report?.finalStatus) {
+      resCategory = report.finalStatus;
+    }
+  }
+
+  if (!resCategory) {
+    for (const c of t.comments || []) {
+      const m = c.text.match(/Marked ticket as Resolved:\s*(.+)/i);
+      if (m) {
+        resCategory = m[1].split('\n')[0].trim();
+        break;
+      }
+    }
+  }
+
+  if (!resCategory) return null;
+
+  switch (resCategory) {
+    case 'For Equipment Replacement':
+    case 'For Replacement':
+    case 'For Disposal':
+      return {
+        category: resCategory,
+        colorClass: 'text-red-600',
+        badgeClass: 'bg-red-500/10 text-red-600 border-red-500/20',
+        dotClass: 'bg-red-500',
+        borderClass: 'border-red-500'
+      };
+    case 'For Parts Replacement':
+    case 'For Procurement':
+    case 'For Further Assessment':
+      return {
+        category: resCategory,
+        colorClass: 'text-amber-600',
+        badgeClass: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+        dotClass: 'bg-amber-500',
+        borderClass: 'border-amber-500'
+      };
+    case 'Referred to Technician / Service Center':
+    case 'Referred to Service Provider':
+      return {
+        category: resCategory,
+        colorClass: 'text-purple-600',
+        badgeClass: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+        dotClass: 'bg-purple-500',
+        borderClass: 'border-purple-500'
+      };
+    case 'No Issue Found':
+      return {
+        category: resCategory,
+        colorClass: 'text-blue-600',
+        badgeClass: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+        dotClass: 'bg-blue-500',
+        borderClass: 'border-blue-500'
+      };
+    default:
+      return {
+        category: resCategory,
+        colorClass: 'text-green-600',
+        badgeClass: 'bg-green-500/10 text-green-600 border-green-500/20',
+        dotClass: 'bg-green-500',
+        borderClass: 'border-green-500'
+      };
+  }
+}
