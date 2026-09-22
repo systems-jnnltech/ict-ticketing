@@ -29,6 +29,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
   const [referralData, setReferralData] = useState({
     reason: 'Hardware repair requires specialized technician',
   });
+  const [timelineFilter, setTimelineFilter] = useState<'all' | 'service' | 'discussion'>('all');
 
   const handleReferralSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +94,187 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
   // Helper to extract specific resolution outcome (e.g. For Equipment Replacement) with semantic styling
   const getTicketResolutionMeta = (t: Ticket) => getTicketResolution(t, serviceReports);
+
+  // Unified events list for current ticket in Service & Activity Timeline
+  const currentTicketEvents = React.useMemo(() => {
+    const events: Array<{
+      id: string;
+      type: 'created' | 'action' | 'comment' | 'ict_action' | 'problem_report' | 'manual_escalation' | 'referral' | 'service_report' | 'resolved';
+      date: number;
+      data: any;
+    }> = [];
+
+    // 1. Ticket Created Node
+    events.push({
+      id: `created-${ticket.id}`,
+      type: 'created',
+      date: new Date(ticket.createdAt).getTime(),
+      data: {
+        createdAt: ticket.createdAt,
+        requesterName: requester?.name,
+        departmentName: department?.name
+      }
+    });
+
+    // 2. Comments and Actions from ticket.comments
+    (ticket.comments || []).filter(isPublicDiscussionComment).forEach((c) => {
+      const isAction = c.text.startsWith('Action:');
+      const rawText = isAction ? c.text.replace('Action: ', '') : c.text;
+      const displayText = rawText.replace(/<!--[\s\S]*?-->/g, '').trim();
+      const commentUser = users.find(u => u.id === c.userId);
+
+      if (c.text.includes('Problem Still Exists Report:')) {
+        const reasonMatch = c.text.match(/Reason: (.*)/);
+        const detailsMatch = c.text.match(/Details: (.*)/);
+        const isEscalation = c.text.includes('escalated to ICT Head') || c.text.includes('Escalated');
+        events.push({
+          id: `problem-${c.id}`,
+          type: 'problem_report',
+          date: new Date(c.createdAt).getTime(),
+          data: {
+            comment: c,
+            dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
+            reason: reasonMatch ? reasonMatch[1] : 'Unknown',
+            details: detailsMatch ? detailsMatch[1] : '',
+            isEscalation,
+            text: c.text
+          }
+        });
+      } else if (c.text.startsWith('Referred to External Technician')) {
+        events.push({
+          id: `referral-${c.id}`,
+          type: 'referral',
+          date: new Date(c.createdAt).getTime(),
+          data: {
+            comment: c,
+            dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
+            text: displayText
+          }
+        });
+      } else if (isAction) {
+        events.push({
+          id: `action-${c.id}`,
+          type: 'action',
+          date: new Date(c.createdAt).getTime(),
+          data: {
+            comment: c,
+            user: commentUser,
+            text: displayText
+          }
+        });
+      } else {
+        events.push({
+          id: `comment-${c.id}`,
+          type: 'comment',
+          date: new Date(c.createdAt).getTime(),
+          data: {
+            comment: c,
+            user: commentUser,
+            text: displayText,
+            isOwn: c.userId === currentUser?.id
+          }
+        });
+      }
+    });
+
+    // 3. Troubleshooting Attempts from ticket.ictRecommendation
+    const actions = ticket.ictRecommendation ? ticket.ictRecommendation.split(/(?=Taken \d+:)/).filter(Boolean) : [];
+    actions.forEach((act, idx) => {
+      const match = act.match(/Taken (\d+):\s+(.*?)\s+by:\s+(.*?)\n(.*)/s);
+      if (match) {
+        const parsedDate = new Date(match[2]).getTime();
+        events.push({
+          id: `ict-action-${idx}`,
+          type: 'ict_action',
+          date: isNaN(parsedDate) ? new Date(ticket.updatedAt).getTime() : parsedDate,
+          data: {
+            attemptNumber: match[1],
+            dateStr: match[2],
+            by: match[3],
+            text: match[4].trim()
+          }
+        });
+      } else {
+        events.push({
+          id: `ict-action-${idx}`,
+          type: 'ict_action',
+          date: new Date(ticket.updatedAt).getTime(),
+          data: {
+            attemptNumber: `${idx + 1}`,
+            dateStr: '',
+            by: 'ICT Support',
+            text: act.trim()
+          }
+        });
+      }
+    });
+
+    // 4. Manual Escalations
+    const problemReports = ticket.comments?.filter(c => c.text.includes('Problem Still Exists Report:')) || [];
+    const escalatedLog = ticket.comments?.find(c => c.text === 'System: Status changed to ESCALATED' || (c.text.includes('Escalated') && !c.text.includes('Problem Still Exists Report:')));
+    if (escalatedLog && !problemReports.some(pr => Math.abs(new Date(pr.createdAt).getTime() - new Date(escalatedLog.createdAt).getTime()) < 5000)) {
+      events.push({
+        id: `escalation-${escalatedLog.id}`,
+        type: 'manual_escalation',
+        date: new Date(escalatedLog.createdAt).getTime(),
+        data: {
+          dateStr: format(new Date(escalatedLog.createdAt), "MMM d, yyyy • h:mm a")
+        }
+      });
+    }
+
+    // 5. Service Reports
+    (serviceReports || []).filter(r => r.ticketId === ticket.id).forEach(r => {
+      events.push({
+        id: `tsr-${r.id}`,
+        type: 'service_report',
+        date: new Date(r.createdAt).getTime(),
+        data: { report: r }
+      });
+    });
+
+    // 6. Resolved / Closed Node
+    if (['RESOLVED', 'CLOSED'].includes(ticket.status)) {
+      const res = getTicketResolutionMeta(ticket);
+      events.push({
+        id: `resolved-${ticket.id}`,
+        type: 'resolved',
+        date: new Date(ticket.updatedAt).getTime(),
+        data: {
+          status: ticket.status,
+          updatedAt: ticket.updatedAt,
+          res
+        }
+      });
+    }
+
+    return events.sort((a, b) => a.date - b.date);
+  }, [ticket, requester, department, users, currentUser, serviceReports]);
+
+  const filteredEvents = React.useMemo(() => {
+    if (timelineFilter === 'service') {
+      return currentTicketEvents.filter(e => 
+        e.type === 'created' || 
+        e.type === 'ict_action' || 
+        e.type === 'problem_report' || 
+        e.type === 'manual_escalation' || 
+        e.type === 'referral' || 
+        e.type === 'service_report' || 
+        e.type === 'resolved'
+      );
+    }
+    if (timelineFilter === 'discussion') {
+      return currentTicketEvents.filter(e => 
+        e.type === 'comment' || 
+        e.type === 'action'
+      );
+    }
+    return currentTicketEvents;
+  }, [currentTicketEvents, timelineFilter]);
+
+  const pastRecords = React.useMemo(() => {
+    return combinedTimeline.filter(item => !(item.type === 'ticket' && item.ticket?.id === ticket.id));
+  }, [combinedTimeline, ticket.id]);
 
   const handleAssign = async () => {
     if (selectedAssignee) {
@@ -317,127 +499,9 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
               </div>
           )}
           
-          {/* Discussion / Comments */}
+          {/* Service & Activity Timeline */}
           <div className="bg-surface rounded-2xl shadow-sm border border-border overflow-hidden flex flex-col">
-              <div className="px-6 py-5 border-b border-border bg-bg/50 flex justify-between items-center flex-wrap gap-3">
-                  <h3 className="text-[11px] font-bold text-ink uppercase tracking-widest">Discussion & Activity</h3>
-                  <div className="flex items-center gap-2">
-                    {/* View Technician Details Button - Only visible for Admin and ICT Support roles */}
-                    {isAdminOrICT && hasReferralDetails && (
-                      <button
-                        onClick={() => setShowDispatchModal(true)}
-                        className="text-[10px] font-bold uppercase tracking-widest bg-purple-500/10 text-purple-600 border border-purple-500/20 hover:bg-purple-500/20 px-3 py-1 rounded-md shadow-sm flex items-center gap-1.5 transition-colors"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        View Technician Details
-                      </button>
-                    )}
-                    <span className="text-[10px] font-bold uppercase tracking-widest bg-bg border border-border text-ink-muted px-3 py-1 rounded-md shadow-sm">
-                      {ticket.comments?.filter(isPublicDiscussionComment).length || 0} Events
-                    </span>
-                  </div>
-              </div>
-              <div className="p-8 space-y-8 flex-1">
-                  {ticket.comments && ticket.comments.filter(isPublicDiscussionComment).length > 0 ? (
-                      ticket.comments.filter(isPublicDiscussionComment).map(comment => {
-                          const commentUser = users.find(u => u.id === comment.userId);
-                          const isOwn = comment.userId === currentUser?.id;
-                          const isAction = comment.text.startsWith('Action:');
-                          const rawText = isAction ? comment.text.replace('Action: ', '') : comment.text;
-                          const displayText = rawText.replace(/<!--[\s\S]*?-->/g, '').trim();
-                          
-                          if (isAction) {
-                              return (
-                                  <div key={comment.id} className="flex justify-center my-6">
-                                      <div className="bg-surface border border-border px-4 py-3 rounded-xl flex items-center gap-3 w-full shadow-sm max-w-xl">
-                                          <div className="w-7 h-7 rounded-full bg-bg border border-border text-ink-muted flex items-center justify-center shrink-0">
-                                              <Activity className="w-3.5 h-3.5" />
-                                          </div>
-                                          <div className="text-left flex-1 flex flex-wrap items-center gap-1.5">
-                                              <span className="text-[11px] font-bold text-ink uppercase tracking-widest">{commentUser?.name}</span>
-                                              <span className="text-[12px] font-medium text-ink-muted whitespace-pre-wrap text-left">{displayText}</span>
-                                          </div>
-                                          <div className="text-[9px] font-bold text-ink-muted uppercase tracking-widest shrink-0">
-                                              {format(new Date(comment.createdAt), 'MMM d, h:mm a')}
-                                          </div>
-                                      </div>
-                                  </div>
-                              );
-                          }
-                          
-                          return (
-                              <div key={comment.id} className={`flex gap-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
-                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-white text-sm font-bold shadow-sm ${
-                                      commentUser?.role === 'Admin' ? 'bg-ink' :
-                                      commentUser?.role === 'ICT Support' ? 'bg-accent' : 'bg-slate-500'
-                                  }`}>
-                                      {commentUser?.name.split(' ').map(n => n[0]).join('').substring(0,2)}
-                                  </div>
-                                  <div className={`max-w-[85%] ${isOwn ? 'text-right' : 'text-left'}`}>
-                                      <div className={`flex items-baseline gap-3 mb-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                                          <span className="text-xs font-bold text-ink">{commentUser?.name}</span>
-                                          <span className="text-[10px] text-ink-muted uppercase tracking-widest font-bold">{format(new Date(comment.createdAt), 'MMM d, h:mm a')}</span>
-                                      </div>
-                                      <div className={`px-5 py-3.5 rounded-2xl text-sm font-medium shadow-sm inline-block whitespace-pre-wrap text-left ${
-                                          isOwn 
-                                              ? 'bg-accent text-white rounded-tr-none' 
-                                              : 'bg-bg border border-border text-ink rounded-tl-none'
-                                      }`}>
-                                          {displayText}
-                                      </div>
-                                  </div>
-                              </div>
-                          );
-                      })
-                  ) : (
-                      <div className="text-center text-sm font-medium text-ink-muted py-12 bg-bg/50 rounded-xl border border-dashed border-border">No comments yet. Start the discussion below.</div>
-                  )}
-              </div>
-              
-              <div className="p-6 border-t border-border bg-bg/50">
-                  <form onSubmit={handleAddComment} className="flex gap-3 relative">
-                      <input
-                          type="text"
-                          value={newCommentText}
-                          onChange={(e) => setNewCommentText(e.target.value)}
-                          placeholder={
-                              isTicketCompleted 
-                                  ? `Ticket is ${ticket.status.toLowerCase()} - messaging disabled` 
-                                  : isWorkNotStarted
-                                      ? "Click 'Start Work' first to begin discussion and post updates..."
-                                      : "Type a message or update..."
-                          }
-                          disabled={isTicketCompleted || isWorkNotStarted}
-                          className={`flex-1 bg-surface border border-border rounded-xl pl-5 pr-14 py-3.5 text-sm font-medium outline-none shadow-sm transition-all ${
-                              (isTicketCompleted || isWorkNotStarted) 
-                                  ? 'opacity-60 cursor-not-allowed bg-bg text-ink-muted placeholder:text-ink-muted/60' 
-                                  : 'focus:ring-2 focus:ring-accent/50 focus:border-accent'
-                          }`}
-                      />
-                      <button 
-                          type="submit"
-                          disabled={isTicketCompleted || isWorkNotStarted || !newCommentText.trim()}
-                          className="absolute right-2 top-2 bottom-2 bg-accent text-white px-4 rounded-lg flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-all shadow-sm active:scale-95"
-                          title={isTicketCompleted ? 'Messaging is disabled' : isWorkNotStarted ? "Click 'Start Work' first" : 'Send message'}
-                      >
-                          <Send className="w-4 h-4" />
-                      </button>
-                  </form>
-                  {isTicketCompleted && (
-                      <p className="text-[11px] text-ink-muted italic text-center mt-2.5">
-                          This ticket is {ticket.status.toLowerCase()}. Discussion and message updates are closed.
-                      </p>
-                  )}
-                  {isWorkNotStarted && !isTicketCompleted && (
-                      <p className="text-[11px] text-accent font-medium text-center mt-2.5 flex items-center justify-center gap-1.5">
-                          <span>Please click <strong>Start Work</strong> in Ticket Actions to begin working and enable discussion updates.</span>
-                      </p>
-                  )}
-              </div>
-          </div>
-
-          {/* Service & Audit Timeline for Linked Asset */}
-          <div className="bg-surface rounded-2xl shadow-sm border border-border overflow-hidden">
+            {/* Card Header */}
             <div className="px-6 py-5 border-b border-border bg-bg/50 flex flex-wrap justify-between items-center gap-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-bg border border-border text-accent flex items-center justify-center shadow-xs shrink-0">
@@ -445,17 +509,58 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                 </div>
                 <div>
                   <h3 className="text-[11px] font-bold text-ink uppercase tracking-widest flex items-center gap-2">
-                    Service & Audit Timeline
+                    Service & Activity Timeline
                   </h3>
-                  {asset && (
+                  {asset ? (
                     <p className="text-[11px] text-ink-muted font-medium mt-0.5">
                       {asset.equipmentType} - {asset.brand} {asset.model} {asset.propertyNumber ? `• Property: ${asset.propertyNumber}` : asset.assetCode ? `• Code: ${asset.assetCode}` : ''}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-ink-muted font-medium mt-0.5">
+                      No linked equipment
                     </p>
                   )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Filter Pills */}
+                <div className="flex items-center bg-bg p-0.5 rounded-lg border border-border text-[10px] font-bold uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => setTimelineFilter('all')}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${timelineFilter === 'all' ? 'bg-surface text-ink shadow-xs' : 'text-ink-muted hover:text-ink'}`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTimelineFilter('service')}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${timelineFilter === 'service' ? 'bg-surface text-ink shadow-xs' : 'text-ink-muted hover:text-ink'}`}
+                  >
+                    Service
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTimelineFilter('discussion')}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${timelineFilter === 'discussion' ? 'bg-surface text-ink shadow-xs' : 'text-ink-muted hover:text-ink'}`}
+                  >
+                    Discussion
+                  </button>
+                </div>
+
+                {/* View Technician Details Button - Only visible for Admin and ICT Support roles */}
+                {isAdminOrICT && hasReferralDetails && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDispatchModal(true)}
+                    className="text-[10px] font-bold uppercase tracking-widest bg-purple-500/10 text-purple-600 border border-purple-500/20 hover:bg-purple-500/20 px-3 py-1 rounded-md shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    View Tech Details
+                  </button>
+                )}
+
                 {asset && (
                   <button
                     type="button"
@@ -467,63 +572,299 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                     <ExternalLink className="w-3 h-3" />
                   </button>
                 )}
+
                 <span className="text-[10px] font-mono font-bold uppercase tracking-widest bg-bg border border-border text-ink-muted px-2.5 py-1 rounded-md shadow-xs">
-                  {asset ? `RECORDS: ${combinedTimeline.length}` : 'NO ASSET'}
+                  {currentTicketEvents.length} Events{asset ? ` • ${combinedTimeline.length} Records` : ''}
                 </span>
               </div>
             </div>
 
-            <div className="divide-y divide-border">
-              {!asset ? (
-                <div className="p-8 text-center bg-bg/30">
-                  <div className="w-10 h-10 rounded-xl bg-bg border border-border text-ink-muted flex items-center justify-center mx-auto mb-2.5 shadow-xs">
-                    <Monitor className="w-5 h-5" />
-                  </div>
-                  <h4 className="text-xs font-bold text-ink uppercase tracking-wider mb-1">No Equipment Linked</h4>
-                  <p className="text-xs text-ink-muted max-w-md mx-auto">
-                    This ticket has no tagged property or asset code. Once an asset is linked, previous repair interventions and audit trails will appear here automatically.
-                  </p>
-                </div>
-              ) : combinedTimeline.length === 0 ? (
-                <div className="p-8 text-center bg-bg/30">
-                  <p className="text-xs font-medium text-ink-muted">
-                    No service tickets or audit records found for this equipment.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* Notice if this is the first service on this equipment */}
-                  {pastTicketsCount === 0 && (
-                    <div className="px-6 py-3 bg-emerald-500/5 border-b border-emerald-500/10 text-emerald-600 flex items-center gap-2 text-xs font-medium">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-                      <span><strong>First Recorded Service:</strong> No prior repair tickets were found for this equipment.</span>
-                    </div>
-                  )}
+            {/* Notice if this is the first service on this equipment */}
+            {asset && pastTicketsCount === 0 && (
+              <div className="px-6 py-3 bg-emerald-500/5 border-b border-emerald-500/10 text-emerald-600 flex items-center gap-2 text-xs font-medium">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                <span><strong>First Recorded Service:</strong> No prior repair tickets were found for this equipment.</span>
+              </div>
+            )}
 
-                  {combinedTimeline.map((item) => {
-                    if (item.type === 'ticket' && item.ticket) {
-                      const tkt = item.ticket;
-                      const isCurrent = tkt.id === ticket.id;
+            {/* Current Ticket Service & Activity Stream */}
+            <div className="p-6 md:p-7">
+              <div className="mb-2.5 space-y-1.5">
+                <div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-blue-500/10 border border-blue-500/20 text-blue-600 inline-block">
+                    Current Ticket
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
+                    #{ticket.ticketNumber}
+                  </span>
+                  <span className="font-bold text-sm text-ink">{ticket.subject}</span>
+                </div>
+              </div>
+
+              <p className="text-xs font-medium text-ink-muted leading-relaxed mb-4 max-w-4xl line-clamp-2">
+                {ticket.description}
+              </p>
+
+              {/* Integrated Chronological Flow */}
+              <div className="relative border-l-2 border-border ml-2 md:ml-3 space-y-6 py-1 mt-4">
+                {filteredEvents.length === 0 ? (
+                  <div className="pl-5 text-xs text-ink-muted italic">
+                    No events match the selected filter.
+                  </div>
+                ) : (
+                  filteredEvents.map((ev) => {
+                    if (ev.type === 'created') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-border ring-4 ring-surface" />
+                          <div className="flex flex-wrap items-baseline gap-2 mb-0.5">
+                            <span className="text-[10px] font-bold text-ink uppercase tracking-widest">Ticket Created</span>
+                            <span className="text-xs text-ink-muted">{format(new Date(ev.data.createdAt), "MMM d, yyyy • h:mm a")}</span>
+                          </div>
+                          {ev.data.requesterName && (
+                            <p className="text-xs text-ink-muted">
+                              Requested by <strong className="text-ink font-semibold">{ev.data.requesterName}</strong> {ev.data.departmentName ? `(${ev.data.departmentName})` : ''}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'action') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-border ring-4 ring-surface" />
+                          <div className="bg-surface border border-border px-3.5 py-2 rounded-xl flex items-center gap-2.5 max-w-xl shadow-xs">
+                            <div className="w-6 h-6 rounded-full bg-bg border border-border text-ink-muted flex items-center justify-center shrink-0">
+                              <Activity className="w-3 h-3" />
+                            </div>
+                            <div className="text-left flex-1 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-bold text-ink uppercase tracking-widest">{ev.data.user?.name || 'System'}</span>
+                              <span className="text-[11px] font-medium text-ink-muted whitespace-pre-wrap">{ev.data.text}</span>
+                            </div>
+                            <div className="text-[9px] font-bold text-ink-muted uppercase tracking-widest shrink-0">
+                              {format(new Date(ev.date), 'MMM d, h:mm a')}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'comment') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-blue-500 ring-4 ring-surface" />
+                          <div className={`flex gap-3 max-w-2xl ${ev.data.isOwn ? 'flex-row-reverse' : ''}`}>
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white text-xs font-bold shadow-xs ${
+                              ev.data.user?.role === 'Admin' ? 'bg-ink' :
+                              ev.data.user?.role === 'ICT Support' ? 'bg-accent' : 'bg-slate-500'
+                            }`}>
+                              {ev.data.user?.name ? ev.data.user.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2) : 'U'}
+                            </div>
+                            <div className={`flex-1 ${ev.data.isOwn ? 'text-right' : 'text-left'}`}>
+                              <div className={`flex items-baseline gap-2 mb-1 ${ev.data.isOwn ? 'justify-end' : 'justify-start'}`}>
+                                <span className="text-xs font-bold text-ink">{ev.data.user?.name || 'User'}</span>
+                                <span className="text-[9px] text-ink-muted uppercase tracking-widest font-bold">{format(new Date(ev.date), 'MMM d, h:mm a')}</span>
+                              </div>
+                              <div className={`px-4 py-2.5 rounded-2xl text-xs font-medium shadow-xs inline-block whitespace-pre-wrap text-left ${
+                                ev.data.isOwn 
+                                  ? 'bg-accent text-white rounded-tr-none' 
+                                  : 'bg-bg border border-border text-ink rounded-tl-none'
+                              }`}>
+                                {ev.data.text}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'ict_action') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-amber-500 ring-4 ring-surface" />
+                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                            <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">
+                              Attempt #{ev.data.attemptNumber}
+                            </span>
+                            {ev.data.dateStr && (
+                              <span className="text-xs text-ink-muted">{ev.data.dateStr}</span>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-ink bg-bg/60 p-2.5 rounded-lg border border-border inline-block max-w-2xl">
+                              <strong className="text-ink">ICT:</strong> {ev.data.text}
+                            </p>
+                            <p className="text-[9px] font-bold text-ink-muted uppercase tracking-wider">
+                              By: {ev.data.by}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'problem_report') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-red-500 ring-4 ring-surface" />
+                          <div className="flex flex-wrap items-baseline gap-2 mb-1.5">
+                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-widest">
+                              {ev.data.isEscalation ? 'Problem Still Exists (Escalated)' : 'Problem Still Exists Reported'}
+                            </span>
+                            <span className="text-xs text-red-600/70">{ev.data.dateStr}</span>
+                          </div>
+                          <div className="bg-red-500/5 p-3 rounded-xl border border-red-500/20 max-w-xl">
+                            <p className="text-xs font-semibold text-red-700 mb-0.5">Reason: {ev.data.reason}</p>
+                            {ev.data.details && <p className="text-xs text-ink-muted leading-relaxed">{ev.data.details}</p>}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'manual_escalation') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-red-500 ring-4 ring-surface" />
+                          <div className="flex flex-wrap items-baseline gap-2 mb-0.5">
+                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-widest">Ticket Escalated to ICT Head</span>
+                            <span className="text-xs text-red-600/70">{ev.data.dateStr}</span>
+                          </div>
+                          <p className="text-xs text-ink-muted">Direct escalation recorded.</p>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'referral') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-purple-500 ring-4 ring-surface" />
+                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                            <span className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Referred to External Technician</span>
+                            <span className="text-xs text-purple-600/70">{ev.data.dateStr}</span>
+                          </div>
+                          <p className="text-xs text-ink-muted">{ev.data.text}</p>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'service_report') {
+                      return (
+                        <div key={ev.id} className="relative pl-5">
+                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-indigo-500 ring-4 ring-surface" />
+                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                            <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Technical Service Report (TSR)</span>
+                            <span className="text-xs text-indigo-600/70">{ev.data.report.reportDate}</span>
+                          </div>
+                          <div className="bg-indigo-500/5 p-3 rounded-xl border border-indigo-500/20 max-w-xl flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-bold text-ink">{ev.data.report.reportNumber}</div>
+                              <div className="text-[11px] text-ink-muted">Final Status: {ev.data.report.finalStatus}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowServiceReportModal(true)}
+                              className="text-[10px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 px-2.5 py-1 rounded-md hover:bg-indigo-500/20 transition-colors cursor-pointer"
+                            >
+                              View TSR
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (ev.type === 'resolved') {
+                      const dotColor = ev.data.status === 'CLOSED'
+                        ? 'bg-ink-muted'
+                        : (ev.data.res?.dotClass || 'bg-green-500');
+                      const textColor = ev.data.status === 'CLOSED'
+                        ? 'text-ink-muted'
+                        : (ev.data.res?.colorClass || 'text-green-600');
+                      const labelText = ev.data.status === 'CLOSED'
+                        ? (ev.data.res ? `Ticket Closed • ${ev.data.res.category}` : 'Ticket Closed')
+                        : (ev.data.res ? `Ticket Resolved: ${ev.data.res.category}` : 'Ticket Resolved');
 
                       return (
-                        <div
-                          key={item.id}
-                          className={`p-6 md:p-7 transition-colors ${
-                            isCurrent ? 'bg-accent/[0.03] border-l-4 border-l-accent' : 'hover:bg-bg/40'
-                          }`}
-                        >
-                          <div className="mb-2.5 space-y-1.5">
-                            <div>
-                              {isCurrent ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-blue-500/10 border border-blue-500/20 text-blue-600 inline-block">
-                                  Current Ticket
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-purple-500/10 border border-purple-500/20 text-purple-600 inline-block">
-                                  Past Repair
-                                </span>
-                              )}
-                            </div>
+                        <div key={ev.id} className="relative pl-5">
+                          <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${dotColor}`} />
+                          <div className="flex flex-wrap items-baseline gap-2">
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${textColor}`}>
+                              {labelText}
+                            </span>
+                            <span className="text-xs text-ink-muted">{format(new Date(ev.data.updatedAt), "MMM d, yyyy • h:mm a")}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })
+                )}
+              </div>
+
+              {/* Message / Discussion Input Box */}
+              <div className="mt-8 pt-5 border-t border-border bg-bg/40 -mx-6 md:-mx-7 -mb-6 md:-mb-7 p-6 md:p-7">
+                <form onSubmit={handleAddComment} className="flex gap-3 relative">
+                  <input
+                    type="text"
+                    value={newCommentText}
+                    onChange={(e) => setNewCommentText(e.target.value)}
+                    placeholder={
+                      isTicketCompleted 
+                        ? `Ticket is ${ticket.status.toLowerCase()} - messaging disabled` 
+                        : isWorkNotStarted
+                            ? "Click 'Start Work' first to begin discussion and post updates..."
+                            : "Type a message or update..."
+                    }
+                    disabled={isTicketCompleted || isWorkNotStarted}
+                    className={`flex-1 bg-surface border border-border rounded-xl pl-4 pr-12 py-3 text-xs font-medium outline-none shadow-xs transition-all ${
+                      (isTicketCompleted || isWorkNotStarted) 
+                        ? 'opacity-60 cursor-not-allowed bg-bg text-ink-muted placeholder:text-ink-muted/60' 
+                        : 'focus:ring-2 focus:ring-accent/50 focus:border-accent'
+                    }`}
+                  />
+                  <button 
+                    type="submit"
+                    disabled={isTicketCompleted || isWorkNotStarted || !newCommentText.trim()}
+                    className="absolute right-1.5 top-1.5 bottom-1.5 bg-accent text-white px-3.5 rounded-lg flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-all shadow-xs active:scale-95 cursor-pointer"
+                    title={isTicketCompleted ? 'Messaging is disabled' : isWorkNotStarted ? "Click 'Start Work' first" : 'Send message'}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+                {isTicketCompleted && (
+                  <p className="text-[10px] text-ink-muted italic text-center mt-2.5">
+                    This ticket is {ticket.status.toLowerCase()}. Discussion and message updates are closed.
+                  </p>
+                )}
+                {isWorkNotStarted && !isTicketCompleted && (
+                  <p className="text-[10px] text-accent font-medium text-center mt-2.5 flex items-center justify-center gap-1.5">
+                    <span>Please click <strong>Start Work</strong> in Ticket Actions to begin working and enable discussion updates.</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Past Equipment Service & Audit History (if records exist) */}
+            {pastRecords.length > 0 && (
+              <div className="border-t border-border bg-bg/20 p-6 md:p-7">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-[10px] font-bold text-ink uppercase tracking-widest flex items-center gap-1.5">
+                    <History className="w-3.5 h-3.5 text-accent" />
+                    <span>Prior Equipment Service & Audit Records ({pastRecords.length})</span>
+                  </h4>
+                </div>
+                <div className="space-y-4">
+                  {pastRecords.map((item) => {
+                    if (item.type === 'ticket' && item.ticket) {
+                      const tkt = item.ticket;
+                      return (
+                        <div key={item.id} className="p-4 bg-surface rounded-xl border border-border shadow-xs">
+                          <div className="mb-2 space-y-1">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase bg-purple-500/10 border border-purple-500/20 text-purple-600 inline-block">
+                              Past Repair
+                            </span>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-bold text-xs text-accent font-mono tracking-wider bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
                                 #{tkt.ticketNumber}
@@ -531,277 +872,17 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                               <span className="font-bold text-sm text-ink">{tkt.subject}</span>
                             </div>
                           </div>
-
-                          <p className="text-xs font-medium text-ink-muted leading-relaxed mb-4 max-w-4xl line-clamp-2">
+                          <p className="text-xs font-medium text-ink-muted leading-relaxed mb-2 line-clamp-2">
                             {tkt.description}
                           </p>
-
-                          {/* Compact Timeline Flow */}
-                          <div className="relative border-l-2 border-border ml-2 md:ml-3 space-y-6 py-1 mt-3">
-                            {/* Ticket Created Node */}
-                            <div className="relative pl-5">
-                              <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-border ring-4 ring-surface" />
-                              <div className="flex flex-wrap items-baseline gap-2 mb-0.5">
-                                <span className="text-[10px] font-bold text-ink uppercase tracking-widest">Ticket Created</span>
-                                <span className="text-xs text-ink-muted">{format(new Date(tkt.createdAt), "MMM d, yyyy • h:mm a")}</span>
-                              </div>
-                            </div>
-
-                            {(() => {
-                              const actions = tkt.ictRecommendation ? tkt.ictRecommendation.split(/(?=Taken \d+:)/).filter(Boolean) : [];
-
-                              const parsedActions = actions.map(action => {
-                                const match = action.match(/Taken (\d+):\s+(.*?)\s+by:\s+(.*?)\n(.*)/s);
-                                if (match) {
-                                  return {
-                                    type: 'ict_action',
-                                    attemptNumber: match[1],
-                                    dateStr: match[2],
-                                    date: new Date(match[2]).getTime(),
-                                    by: match[3],
-                                    text: match[4].trim()
-                                  };
-                                }
-                                return {
-                                  type: 'ict_action',
-                                  attemptNumber: '?',
-                                  dateStr: '',
-                                  date: 0,
-                                  by: 'Unknown',
-                                  text: action.trim()
-                                };
-                              });
-
-                              const problemReports = tkt.comments
-                                ?.filter(c => c.text.includes('Problem Still Exists Report:'))
-                                .map(c => {
-                                  const reasonMatch = c.text.match(/Reason: (.*)/);
-                                  const detailsMatch = c.text.match(/Details: (.*)/);
-                                  const isEscalation = c.text.includes('escalated to ICT Head') || c.text.includes('Escalated');
-
-                                  return {
-                                    type: 'problem_report',
-                                    date: new Date(c.createdAt).getTime(),
-                                    dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
-                                    reason: reasonMatch ? reasonMatch[1] : 'Unknown',
-                                    details: detailsMatch ? detailsMatch[1] : '',
-                                    isEscalation,
-                                    text: c.text
-                                  };
-                                }) || [];
-
-                              const escalatedLog = tkt.comments?.find(c => c.text === 'System: Status changed to ESCALATED' || (c.text.includes('Escalated') && !c.text.includes('Problem Still Exists Report:')));
-                              const manualEscalations = [];
-                              if (escalatedLog && !problemReports.some(pr => Math.abs(pr.date - new Date(escalatedLog.createdAt).getTime()) < 5000)) {
-                                manualEscalations.push({
-                                  type: 'manual_escalation',
-                                  date: new Date(escalatedLog.createdAt).getTime(),
-                                  dateStr: format(new Date(escalatedLog.createdAt), "MMM d, yyyy • h:mm a")
-                                });
-                              } else if (!escalatedLog && tkt.status === 'ESCALATED' && problemReports.filter(pr => pr.isEscalation).length === 0) {
-                                manualEscalations.push({
-                                  type: 'manual_escalation',
-                                  date: new Date(tkt.updatedAt).getTime(),
-                                  dateStr: format(new Date(tkt.updatedAt), "MMM d, yyyy • h:mm a")
-                                });
-                              }
-
-                              const referrals = tkt.comments?.filter(c => c.text.includes('Referred to External Technician')).map(c => {
-                                const reasonMatch = c.text.match(/Reason: (.*)/);
-                                const providerComment = tkt.comments?.find(pc => pc.text.includes('EXT_TECH_DETAILS'));
-                                let provider = '';
-                                if (providerComment) {
-                                  const extMatch = providerComment.text.match(/<!-- EXT_TECH_DETAILS: (.*?) -->/);
-                                  if (extMatch) {
-                                    try { provider = JSON.parse(extMatch[1]).serviceProvider || ''; } catch(e){}
-                                  }
-                                }
-                                return {
-                                  type: 'referral',
-                                  date: new Date(c.createdAt).getTime(),
-                                  dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
-                                  reason: reasonMatch ? reasonMatch[1] : 'Unknown',
-                                  provider
-                                };
-                              }) || [];
-
-                              const dispatches = tkt.comments?.filter(c => c.text.includes('DISPATCH_INFO')).map(c => {
-                                let dispatchData = null;
-                                const match = c.text.match(/<!-- DISPATCH_INFO: (.*?) -->/);
-                                if (match) {
-                                  try { dispatchData = JSON.parse(match[1]); } catch(e){}
-                                }
-                                return {
-                                  type: 'dispatch',
-                                  date: new Date(c.createdAt).getTime(),
-                                  dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
-                                  dispatchData
-                                };
-                              }) || [];
-
-                              const repairs = tkt.comments?.filter(c => c.text.includes('REPAIR_INFO')).map(c => {
-                                let repairData = null;
-                                const match = c.text.match(/<!-- REPAIR_INFO: (.*?) -->/);
-                                if (match) {
-                                  try { repairData = JSON.parse(match[1]); } catch(e){}
-                                }
-                                return {
-                                  type: 'repair',
-                                  date: new Date(c.createdAt).getTime(),
-                                  dateStr: format(new Date(c.createdAt), "MMM d, yyyy • h:mm a"),
-                                  repairData
-                                };
-                              }) || [];
-
-                              const allEvents = [...parsedActions, ...problemReports, ...manualEscalations, ...referrals, ...dispatches, ...repairs].sort((a, b) => a.date - b.date);
-
-                              return (
-                                <>
-                                  {allEvents.map((ev, i) => (
-                                    <React.Fragment key={i}>
-                                      {ev.type === 'ict_action' && (
-                                        <div className="relative pl-5">
-                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-accent ring-4 ring-surface" />
-                                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
-                                            <span className="text-[10px] font-bold text-ink uppercase tracking-widest">Attempt #{ev.attemptNumber}</span>
-                                            <span className="text-xs text-ink-muted">{ev.dateStr}</span>
-                                          </div>
-                                          <div className="text-xs text-ink-muted leading-relaxed">
-                                            <span className="font-semibold text-ink">
-                                              {(ev.by as string).includes('ICT Head') || (ev.by as string).includes('Admin') ? 'ICT Head' : 'ICT'}:
-                                            </span>{' '}
-                                            {ev.text as string}
-                                          </div>
-                                          <div className="mt-1 text-[9px] font-bold uppercase tracking-widest text-ink-muted">
-                                            By: {ev.by as string}
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {ev.type === 'problem_report' && (
-                                        <div className="relative pl-5">
-                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-red-500 ring-4 ring-surface" />
-                                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
-                                            <span className="text-[10px] font-bold text-red-500 uppercase tracking-widest">Problem Still Exists</span>
-                                            <span className="text-xs text-red-500/70">{ev.dateStr}</span>
-                                          </div>
-                                          <div className="text-xs text-ink-muted leading-relaxed">
-                                            <span className="font-semibold text-ink">Reason:</span> {ev.reason as string}
-                                            {ev.details && (
-                                              <div className="mt-0.5">
-                                                <span className="font-semibold text-ink">Details:</span> {ev.details as string}
-                                              </div>
-                                            )}
-                                          </div>
-                                          {ev.isEscalation && (
-                                            <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 rounded text-[9px] font-bold uppercase tracking-widest">
-                                              <span>🚨</span> Escalated to ICT Head
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-
-                                      {ev.type === 'manual_escalation' && (
-                                        <div className="relative pl-5">
-                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-red-500 ring-4 ring-surface" />
-                                          <div className="flex flex-wrap items-baseline gap-2">
-                                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-widest flex items-center gap-1">
-                                              <span>🚨</span> Escalated to ICT Head
-                                            </span>
-                                            <span className="text-xs text-red-500/70">{ev.dateStr}</span>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {ev.type === 'referral' && (
-                                        <div className="relative pl-5">
-                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-purple-500 ring-4 ring-surface" />
-                                          <div className="flex flex-wrap items-baseline gap-2 mb-1">
-                                            <span className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Referred to Ext. Tech</span>
-                                            <span className="text-xs text-purple-600/70">{ev.dateStr}</span>
-                                          </div>
-                                          <div className="text-xs text-ink-muted leading-relaxed">
-                                            {ev.provider && (
-                                              <div><span className="font-semibold text-ink">Provider:</span> {ev.provider as string}</div>
-                                            )}
-                                            <div><span className="font-semibold text-ink">Reason:</span> {ev.reason as string}</div>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {ev.type === 'dispatch' && (
-                                        <div className="relative pl-5">
-                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-blue-500 ring-4 ring-surface" />
-                                          <div className="flex flex-wrap items-baseline gap-2 mb-1.5">
-                                            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Dispatch Information</span>
-                                            <span className="text-xs text-blue-600/70">{ev.dateStr}</span>
-                                          </div>
-                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-ink-muted bg-bg/50 p-3 rounded-xl border border-border">
-                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Released</span>{(ev.dispatchData as any)?.dateReleased ? format(new Date((ev.dispatchData as any).dateReleased), 'MMM d, yyyy h:mm a') : '-'}</div>
-                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">By</span>{(ev.dispatchData as any)?.releasedBy || '-'}</div>
-                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Received By (Tech)</span>{(ev.dispatchData as any)?.receivedBy || '-'}</div>
-                                            <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Contact No.</span>{(ev.dispatchData as any)?.technicianContact || '-'}</div>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {ev.type === 'repair' && (
-                                        <div className="relative pl-5">
-                                          <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-green-500 ring-4 ring-surface" />
-                                          <div className="flex flex-wrap items-baseline gap-2 mb-1.5">
-                                            <span className="text-[10px] font-bold text-green-600 uppercase tracking-widest">Repair / Return Information</span>
-                                            <span className="text-xs text-green-600/70">{ev.dateStr}</span>
-                                          </div>
-                                          <div className="bg-bg/50 p-3 rounded-xl border border-border">
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-ink-muted mb-2">
-                                              <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Returned</span>{(ev.repairData as any)?.dateReturned ? format(new Date((ev.repairData as any).dateReturned), 'MMM d, yyyy h:mm a') : '-'}</div>
-                                              <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Status</span>{(ev.repairData as any)?.repairStatus || '-'}</div>
-                                            </div>
-                                            <div className="space-y-1.5 text-xs text-ink-muted border-t border-border pt-2">
-                                              {((ev.repairData as any)?.technicianFindings) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Findings</span>{(ev.repairData as any)?.technicianFindings}</div>}
-                                              {((ev.repairData as any)?.actionPerformed) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Action Performed</span>{(ev.repairData as any)?.actionPerformed}</div>}
-                                              {((ev.repairData as any)?.partsReplaced) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Parts Replaced</span>{(ev.repairData as any)?.partsReplaced}</div>}
-                                              {((ev.repairData as any)?.finalRemarks) && <div><span className="font-bold text-ink block text-[9px] uppercase tracking-widest mb-0.5">Remarks</span>{(ev.repairData as any)?.finalRemarks}</div>}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </React.Fragment>
-                                  ))}
-                                </>
-                              );
-                            })()}
-
-                            {/* Resolved / Closed Node */}
-                            {['RESOLVED', 'CLOSED'].includes(tkt.status) && (() => {
-                              const res = getTicketResolutionMeta(tkt);
-                              const dotColor = tkt.status === 'CLOSED'
-                                ? 'bg-ink-muted'
-                                : (res?.dotClass || 'bg-green-500');
-                              const textColor = tkt.status === 'CLOSED'
-                                ? 'text-ink-muted'
-                                : (res?.colorClass || 'text-green-600');
-                              const labelText = tkt.status === 'CLOSED'
-                                ? (res ? `Ticket Closed • ${res.category}` : 'Ticket Closed')
-                                : (res ? `Ticket Resolved: ${res.category}` : 'Ticket Resolved');
-
-                              return (
-                                <div className="relative pl-5">
-                                  <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ring-4 ring-surface ${dotColor}`} />
-                                  <div className="flex flex-wrap items-baseline gap-2">
-                                    <span className={`text-[10px] font-bold uppercase tracking-widest ${textColor}`}>
-                                      {labelText}
-                                    </span>
-                                    <span className="text-xs text-ink-muted">{format(new Date(tkt.updatedAt), "MMM d, yyyy • h:mm a")}</span>
-                                  </div>
-                                </div>
-                              );
-                            })()}
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                            <span>Created: {format(new Date(tkt.createdAt), "MMM d, yyyy")}</span>
+                            <span>•</span>
+                            <span>Status: <strong className="text-ink font-semibold">{tkt.status}</strong></span>
                           </div>
                         </div>
                       );
                     }
-
                     if (item.type === 'audit' && item.history) {
                       const history = item.history;
                       let parsedChanges: { performedByName?: string; diffs?: { field: string; from: string; to: string }[]; summary?: string } = {};
@@ -810,80 +891,36 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                       } catch (e) {
                         parsedChanges = { summary: history.changes };
                       }
-                      const diffs = parsedChanges.diffs || [];
                       const actorName = parsedChanges.performedByName || history.performedByName || 'Admin';
 
                       return (
-                        <div key={item.id} className="p-6 md:p-7 hover:bg-bg/40 transition-colors">
-                          <div className="flex items-start justify-between mb-2.5">
-                            <div className="flex flex-wrap items-center gap-2.5">
-                              <span className={`font-bold text-xs font-mono tracking-wider px-2 py-0.5 rounded border flex items-center gap-1.5 ${
-                                history.action === 'AUDITED'
-                                  ? 'bg-purple-500/10 text-purple-600 border-purple-500/20'
-                                  : history.action === 'CREATED'
-                                  ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
-                                  : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                              }`}>
-                                {history.action === 'AUDITED' && <ShieldCheck className="w-3.5 h-3.5" />}
-                                {history.action === 'CREATED' && <Database className="w-3.5 h-3.5" />}
-                                {history.action === 'UPDATED' && <FileCheck className="w-3.5 h-3.5" />}
-                                {history.action === 'AUDITED' ? 'PHYSICAL AUDIT' : history.action === 'CREATED' ? 'REGISTRATION' : 'RECORD UPDATE'}
-                              </span>
-                              <span className="font-bold text-sm text-ink">
-                                {history.action === 'AUDITED' 
-                                  ? 'Physical Inventory Audit Recorded' 
-                                  : history.action === 'CREATED'
-                                  ? 'Equipment Registered in Municipal Database'
-                                  : 'Asset Specification & Profile Updated'}
-                              </span>
-                            </div>
-                            <span className="text-[9px] font-bold px-2 py-0.5 rounded tracking-widest uppercase border bg-surface border-border text-ink-muted">
-                              AUDIT LOG
+                        <div key={item.id} className="p-4 bg-surface rounded-xl border border-border shadow-xs">
+                          <div className="flex items-start justify-between mb-1.5">
+                            <span className={`font-bold text-[10px] font-mono tracking-wider px-2 py-0.5 rounded border flex items-center gap-1.5 ${
+                              history.action === 'AUDITED'
+                                ? 'bg-purple-500/10 text-purple-600 border-purple-500/20'
+                                : history.action === 'CREATED'
+                                ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                                : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                            }`}>
+                              {history.action === 'AUDITED' && <ShieldCheck className="w-3 h-3" />}
+                              {history.action === 'CREATED' && <Database className="w-3 h-3" />}
+                              {history.action === 'UPDATED' && <FileCheck className="w-3 h-3" />}
+                              {history.action === 'AUDITED' ? 'PHYSICAL AUDIT' : history.action === 'CREATED' ? 'REGISTRATION' : 'RECORD UPDATE'}
                             </span>
+                            <span className="text-[10px] text-ink-muted">{format(new Date(history.createdAt), "MMM d, yyyy • h:mm a")}</span>
                           </div>
-
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-3">
-                            <span>Recorded by: <strong className="text-ink font-semibold">{actorName}</strong></span>
-                            <span>•</span>
-                            <span>{format(new Date(history.createdAt), "MMM d, yyyy • h:mm a")}</span>
-                          </div>
-
-                          {diffs.length > 0 ? (
-                            <div className="bg-bg/60 border border-border rounded-xl overflow-hidden shadow-xs">
-                              <div className="px-3.5 py-1.5 bg-bg border-b border-border text-[9px] font-bold uppercase tracking-widest text-ink-muted">
-                                Documented Changes ({diffs.length})
-                              </div>
-                              <div className="p-3 divide-y divide-border/60">
-                                {diffs.map((diff: any, idx: number) => (
-                                  <div key={idx} className="py-2 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1.5">
-                                    <span className="font-bold text-ink sm:w-1/3">{diff.field}</span>
-                                    <div className="flex items-center gap-2 font-mono sm:w-2/3 flex-wrap">
-                                      <span className="text-red-500/80 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20 line-through truncate max-w-[200px]" title={diff.from}>
-                                        {diff.from}
-                                      </span>
-                                      <span className="text-ink-muted">➔</span>
-                                      <span className="text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold truncate max-w-[200px]" title={diff.to}>
-                                        {diff.to}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-bg/50 border border-border rounded-xl p-3 text-xs text-ink-muted italic">
-                              {parsedChanges.summary || 'Equipment profile details updated.'}
-                            </div>
-                          )}
+                          <p className="text-xs text-ink-muted">
+                            Recorded by <strong className="text-ink font-semibold">{actorName}</strong>: {parsedChanges.summary || 'Equipment profile details updated.'}
+                          </p>
                         </div>
                       );
                     }
-
                     return null;
                   })}
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
