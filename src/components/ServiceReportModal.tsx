@@ -1131,21 +1131,10 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 V. ICT Resolution / Recommendation
               </div>
-              <div className="border border-black p-2.5 text-[11px] font-sans bg-gray-50 print:bg-transparent space-y-2">
-                {selectedResolutionCriteria && (
-                  <div>
-                    <span className="font-bold uppercase text-[9.5px] text-gray-800 block mb-0.5">Resolution Criteria:</span>
-                    <p className="font-semibold text-black leading-relaxed">{selectedResolutionCriteria}</p>
-                  </div>
-                )}
-                {recommendation && recommendation !== selectedResolutionCriteria && (
-                  <div className={selectedResolutionCriteria ? "pt-1.5 border-t border-gray-300" : ""}>
-                    <span className="font-bold uppercase text-[9.5px] text-gray-800 block mb-0.5">Recommendation / Technical Advice:</span>
-                    <p className="font-medium whitespace-pre-wrap leading-relaxed text-black">
-                      {recommendation}
-                    </p>
-                  </div>
-                )}
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-gray-50 print:bg-transparent">
+                <p className="font-medium whitespace-pre-wrap leading-relaxed text-black">
+                  {recommendation || 'Equipment tested operational and returned in good working condition.'}
+                </p>
               </div>
             </div>
 
