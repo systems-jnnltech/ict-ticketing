@@ -322,7 +322,13 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       // Auto-extract actions from comments or recommendations
       const prefillActions = detectedActionTaken || (
         (ticket.comments || [])
-          .filter(c => !c.text.startsWith('System: Status changed to') && !c.text.startsWith('Action: Assigned ticket') && !c.text.startsWith('Action: Started work'))
+          .filter(c => !c.text.startsWith('System: Status changed to') && 
+                       !c.text.startsWith('Action: Assigned ticket') && 
+                       !c.text.startsWith('Action: Started work') &&
+                       !c.text.startsWith('Action: Marked ticket') &&
+                       !c.text.startsWith('Action: Closed ticket') &&
+                       !c.text.startsWith('Action: External repair') &&
+                       !c.text.startsWith('{'))
           .map(c => c.text.replace(/<!--[\s\S]*?-->/g, '').trim())
           .filter(Boolean)
           .join('; ')
@@ -1096,12 +1102,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 IV. Technical Assessment & Action Taken
               </div>
               <div className="border border-black p-2.5 text-[11px] font-sans bg-white space-y-2">
-                {actionTaken && (
-                  <div className="pb-2 border-b border-gray-200">
-                    <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">Action Taken / Troubleshooting Conducted:</div>
-                    <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{actionTaken}</p>
-                  </div>
-                )}
                 <div>
                   <div className="font-bold mb-1 uppercase text-[9.5px] text-gray-800">Activity Timeline & Action Log:</div>
                   <div className="space-y-1.5">
