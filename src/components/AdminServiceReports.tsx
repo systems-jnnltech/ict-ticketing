@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { ServiceReport, FinalServiceStatus, ServiceReportStatus } from '../store/mockData';
+import { ServiceReport, FinalServiceStatus, ServiceReportStatus, RESOLUTION_OPTIONS } from '../store/mockData';
 import { ServiceReportModal } from './ServiceReportModal';
 import { 
   FileText, Search, Printer, Eye, Edit, Trash2, Filter, 
@@ -26,14 +26,29 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Status classification helpers
+  const isReplacementOrDisposal = (status: string) => 
+    status === 'For Parts Replacement' ||
+    status === 'For Equipment Replacement' ||
+    status === 'For Replacement' ||
+    status === 'For Procurement' ||
+    status === 'For Disposal';
+
+  const isResolvedOrRepaired = (status: string) =>
+    status === 'Resolved' ||
+    status === 'Repaired' ||
+    status === 'Reconfigured' ||
+    status === 'Software Installed / Updated' ||
+    status === 'Component Replaced' ||
+    status === 'User Assistance Provided' ||
+    status === 'No Issue Found';
+
   // Statistics
   const stats = useMemo(() => {
     const total = serviceReports.length;
-    const resolvedOrRepaired = serviceReports.filter(r => r.finalStatus === 'Resolved' || r.finalStatus === 'Repaired').length;
+    const resolvedOrRepaired = serviceReports.filter(r => isResolvedOrRepaired(r.finalStatus)).length;
     const signed = serviceReports.filter(r => r.reportStatus === 'Signed' || r.reportStatus === 'Released').length;
-    const forReplacementOrProcurement = serviceReports.filter(r => 
-      r.finalStatus === 'For Replacement' || r.finalStatus === 'For Procurement' || r.finalStatus === 'For Disposal'
-    ).length;
+    const forReplacementOrProcurement = serviceReports.filter(r => isReplacementOrDisposal(r.finalStatus)).length;
 
     return { total, resolvedOrRepaired, signed, forReplacementOrProcurement };
   }, [serviceReports]);
@@ -52,8 +67,25 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
         (report.preparedByName && report.preparedByName.toLowerCase().includes(searchLower)) ||
         (report.recommendation && report.recommendation.toLowerCase().includes(searchLower));
 
-      const matchesFinalStatus = filterFinalStatus === 'ALL' || report.finalStatus === filterFinalStatus;
-      const matchesReportStatus = filterReportStatus === 'ALL' || report.reportStatus === filterReportStatus;
+      let matchesFinalStatus = true;
+      if (filterFinalStatus === 'ALL') {
+        matchesFinalStatus = true;
+      } else if (filterFinalStatus === 'REPLACEMENT_GROUP') {
+        matchesFinalStatus = isReplacementOrDisposal(report.finalStatus);
+      } else if (filterFinalStatus === 'RESOLVED_GROUP') {
+        matchesFinalStatus = isResolvedOrRepaired(report.finalStatus);
+      } else {
+        matchesFinalStatus = report.finalStatus === filterFinalStatus;
+      }
+
+      let matchesReportStatus = true;
+      if (filterReportStatus === 'ALL') {
+        matchesReportStatus = true;
+      } else if (filterReportStatus === 'SIGNED_GROUP') {
+        matchesReportStatus = report.reportStatus === 'Signed' || report.reportStatus === 'Released';
+      } else {
+        matchesReportStatus = report.reportStatus === filterReportStatus;
+      }
 
       return matchesSearch && matchesFinalStatus && matchesReportStatus;
     });
@@ -102,7 +134,17 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-surface p-5 rounded-2xl border border-border shadow-sm flex items-center justify-between">
+        {/* Card 1: Total Reports */}
+        <div 
+          onClick={() => {
+            setFilterFinalStatus('ALL');
+            setFilterReportStatus('ALL');
+          }}
+          className={`bg-surface p-5 rounded-2xl border shadow-sm flex items-center justify-between cursor-pointer transition-all hover:border-accent/50 hover:shadow-md ${
+            filterFinalStatus === 'ALL' && filterReportStatus === 'ALL' ? 'ring-2 ring-accent/30 border-accent/40' : 'border-border'
+          }`}
+          title="Click to show all reports"
+        >
           <div>
             <div className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Total Reports</div>
             <div className="text-2xl font-black text-ink mt-1 font-mono">{stats.total}</div>
@@ -113,7 +155,17 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
           </div>
         </div>
 
-        <div className="bg-surface p-5 rounded-2xl border border-border shadow-sm flex items-center justify-between">
+        {/* Card 2: Resolved / Repaired */}
+        <div 
+          onClick={() => {
+            setFilterFinalStatus(prev => prev === 'RESOLVED_GROUP' ? 'ALL' : 'RESOLVED_GROUP');
+            setFilterReportStatus('ALL');
+          }}
+          className={`bg-surface p-5 rounded-2xl border shadow-sm flex items-center justify-between cursor-pointer transition-all hover:border-green-500/50 hover:shadow-md ${
+            filterFinalStatus === 'RESOLVED_GROUP' ? 'ring-2 ring-green-500/40 border-green-500/50 bg-green-500/5' : 'border-border'
+          }`}
+          title="Click to filter by Resolved / Repaired units"
+        >
           <div>
             <div className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Resolved / Repaired</div>
             <div className="text-2xl font-black text-green-600 mt-1 font-mono">{stats.resolvedOrRepaired}</div>
@@ -124,7 +176,17 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
           </div>
         </div>
 
-        <div className="bg-surface p-5 rounded-2xl border border-border shadow-sm flex items-center justify-between">
+        {/* Card 3: Signed / Released */}
+        <div 
+          onClick={() => {
+            setFilterReportStatus(prev => prev === 'SIGNED_GROUP' ? 'ALL' : 'SIGNED_GROUP');
+            setFilterFinalStatus('ALL');
+          }}
+          className={`bg-surface p-5 rounded-2xl border shadow-sm flex items-center justify-between cursor-pointer transition-all hover:border-purple-500/50 hover:shadow-md ${
+            filterReportStatus === 'SIGNED_GROUP' ? 'ring-2 ring-purple-500/40 border-purple-500/50 bg-purple-500/5' : 'border-border'
+          }`}
+          title="Click to filter by Signed / Released reports"
+        >
           <div>
             <div className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Signed / Released</div>
             <div className="text-2xl font-black text-purple-600 mt-1 font-mono">{stats.signed}</div>
@@ -135,7 +197,17 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
           </div>
         </div>
 
-        <div className="bg-surface p-5 rounded-2xl border border-border shadow-sm flex items-center justify-between">
+        {/* Card 4: For Replacement / Disposal */}
+        <div 
+          onClick={() => {
+            setFilterFinalStatus(prev => prev === 'REPLACEMENT_GROUP' ? 'ALL' : 'REPLACEMENT_GROUP');
+            setFilterReportStatus('ALL');
+          }}
+          className={`bg-surface p-5 rounded-2xl border shadow-sm flex items-center justify-between cursor-pointer transition-all hover:border-amber-500/50 hover:shadow-md ${
+            filterFinalStatus === 'REPLACEMENT_GROUP' ? 'ring-2 ring-amber-500/40 border-amber-500/50 bg-amber-500/5' : 'border-border'
+          }`}
+          title="Click to filter by For Replacement / Disposal"
+        >
           <div>
             <div className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">For Replacement / Disposal</div>
             <div className="text-2xl font-black text-amber-600 mt-1 font-mono">{stats.forReplacementOrProcurement}</div>
@@ -173,8 +245,14 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
               className="px-3 py-2 bg-bg border border-border rounded-xl text-xs font-medium text-ink outline-none cursor-pointer"
             >
               <option value="ALL">All Final Statuses</option>
+              <option value="REPLACEMENT_GROUP">All Replacement / Disposal</option>
+              <option value="RESOLVED_GROUP">All Resolved / Operational</option>
+              <option disabled>──────────</option>
+              {RESOLUTION_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+              <option disabled>── Legacy ──</option>
               <option value="Resolved">Resolved</option>
-              <option value="Repaired">Repaired</option>
               <option value="For Monitoring">For Monitoring</option>
               <option value="For Further Assessment">For Further Assessment</option>
               <option value="For Replacement">For Replacement</option>
@@ -192,6 +270,7 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
               className="px-3 py-2 bg-bg border border-border rounded-xl text-xs font-medium text-ink outline-none cursor-pointer"
             >
               <option value="ALL">All Workflow States</option>
+              <option value="SIGNED_GROUP">Signed / Released (All)</option>
               <option value="Draft">Draft</option>
               <option value="Generated">Generated</option>
               <option value="Reviewed">Reviewed</option>
@@ -199,6 +278,21 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
               <option value="Released">Released</option>
             </select>
           </div>
+
+          {(filterFinalStatus !== 'ALL' || filterReportStatus !== 'ALL' || searchTerm) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterFinalStatus('ALL');
+                setFilterReportStatus('ALL');
+                setSearchTerm('');
+              }}
+              className="text-[11px] font-bold text-accent hover:underline flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-accent/10 transition-colors cursor-pointer"
+              title="Reset all filters"
+            >
+              <RefreshCw className="w-3 h-3" /> Reset
+            </button>
+          )}
         </div>
 
       </div>
@@ -228,12 +322,17 @@ export function AdminServiceReports({ onViewTicket }: AdminServiceReportsProps) 
                   const asset = assets.find(a => a.id === ticket?.assetId || a.assetCode === ticket?.assetId);
 
                   let statusBadgeClass = 'bg-blue-500/10 text-blue-600 border-blue-500/20';
-                  if (report.finalStatus === 'Resolved' || report.finalStatus === 'Repaired') {
-                    statusBadgeClass = 'bg-green-500/10 text-green-600 border-green-500/20';
-                  } else if (report.finalStatus === 'For Disposal' || report.finalStatus === 'For Replacement') {
+                  const s = report.finalStatus;
+                  if (s === 'For Equipment Replacement' || s === 'For Replacement' || s === 'For Disposal') {
                     statusBadgeClass = 'bg-red-500/10 text-red-600 border-red-500/20';
-                  } else if (report.finalStatus === 'For Procurement' || report.finalStatus === 'For Monitoring') {
+                  } else if (s === 'For Parts Replacement' || s === 'For Procurement' || s === 'For Monitoring' || s === 'For Further Assessment') {
                     statusBadgeClass = 'bg-amber-500/10 text-amber-600 border-amber-500/20';
+                  } else if (s === 'Referred to Technician / Service Center' || s === 'Referred to Service Provider') {
+                    statusBadgeClass = 'bg-purple-500/10 text-purple-600 border-purple-500/20';
+                  } else if (s === 'No Issue Found') {
+                    statusBadgeClass = 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+                  } else {
+                    statusBadgeClass = 'bg-green-500/10 text-green-600 border-green-500/20';
                   }
 
                   let workflowBadgeClass = 'bg-slate-500/10 text-slate-600 border-slate-500/20';
