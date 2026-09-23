@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { Ticket, ServiceReport, FinalServiceStatus, ServiceReportStatus, RESOLUTION_OPTIONS, mockOffices } from '../store/mockData';
+import { Ticket, ServiceReport, FinalServiceStatus, ServiceReportStatus, RESOLUTION_OPTIONS, mockOffices, User as AppUser } from '../store/mockData';
 import { X, Printer, Save, FileText, CheckCircle2, AlertCircle, Edit3, Eye, ShieldCheck, Sparkles, Building, User, Monitor, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -67,7 +67,9 @@ export interface ActionLogEntry {
 export function getActionLogEntries(
   ticket: Ticket,
   assigneeName?: string,
-  finalStatusText?: string
+  finalStatusText?: string,
+  users?: AppUser[],
+  requesterName?: string
 ): ActionLogEntry[] {
   interface RawEntry {
     time: Date;
@@ -77,6 +79,12 @@ export function getActionLogEntries(
   }
 
   const rawEntries: RawEntry[] = [];
+
+  const getUserName = (userId?: string) => {
+    if (!userId) return '';
+    const u = users?.find(user => user.id === userId);
+    return u?.name || '';
+  };
 
   // Helper to determine phase and normalized key
   const analyzeText = (text: string): { cleanText: string; phase: number; key: string } => {
@@ -114,11 +122,20 @@ export function getActionLogEntries(
     return { cleanText: clean, phase: 4, key: `note_${lower.substring(0, 30)}` };
   };
 
+  // Helper to prefix actor
+  const withActor = (actor: string, text: string) => {
+    const clean = text.trim();
+    if (clean.toLowerCase().startsWith('by:')) return clean;
+    if (clean.toLowerCase().startsWith('taken ') && clean.toLowerCase().includes(' by ')) return clean;
+    return `by: ${actor} - ${clean}`;
+  };
+
   // 1. Ticket submitted
   if (ticket.createdAt) {
+    const submitter = requesterName || getUserName(ticket.requesterId) || 'Requester';
     rawEntries.push({
       time: new Date(ticket.createdAt),
-      text: 'Ticket submitted and logged into ICT Helpdesk system',
+      text: withActor(submitter, 'Ticket submitted and logged into ICT Helpdesk system'),
       phase: 1,
       key: 'ticket_submitted'
     });
@@ -143,9 +160,17 @@ export function getActionLogEntries(
       const { cleanText, phase, key } = analyzeText(c.text);
       if (!cleanText) return;
 
+      const commentUser = users?.find(u => u.id === c.userId);
+      let actor = commentUser?.name;
+      if (!actor) {
+        if (c.userId === ticket.requesterId) actor = requesterName || 'Requester';
+        else if (c.userId === ticket.assignedToId) actor = assigneeName || 'ICT Support';
+        else actor = 'ICT Staff';
+      }
+
       rawEntries.push({
         time: new Date(c.createdAt),
-        text: cleanText,
+        text: withActor(actor, cleanText),
         phase,
         key
       });
@@ -170,14 +195,15 @@ export function getActionLogEntries(
 
         rawEntries.push({
           time: entryTime,
-          text: `Taken ${attemptNum} by ${byWho}: ${actionNotes}`,
+          text: `by: ${byWho} - Taken ${attemptNum}: ${actionNotes}`,
           phase: 4,
           key: `taken_${attemptNum}_${actionNotes.substring(0, 20).toLowerCase()}`
         });
       } else if (act.trim()) {
+        const actor = assigneeName || 'ICT Support';
         rawEntries.push({
           time: new Date(ticket.updatedAt || ticket.createdAt),
-          text: `ICT Action: ${act.trim().replace(/\r?\n/g, ' ')}`,
+          text: withActor(actor, `ICT Action: ${act.trim().replace(/\r?\n/g, ' ')}`),
           phase: 4,
           key: `ict_rec_${act.substring(0, 20).toLowerCase()}`
         });
@@ -192,7 +218,7 @@ export function getActionLogEntries(
     const assignedTime = assignedHistory?.timestamp || ticket.createdAt;
     rawEntries.push({
       time: new Date(assignedTime),
-      text: `Assigned ticket to ${assigneeName || 'ICT Technical Personnel'}`,
+      text: withActor('ICT Dispatch', `Assigned ticket to ${assigneeName || 'ICT Technical Personnel'}`),
       phase: 2,
       key: 'assigned'
     });
@@ -202,9 +228,10 @@ export function getActionLogEntries(
   if (!hasActionInComments('started_work') && ['IN PROGRESS', 'RESOLVED', 'CLOSED'].includes(ticket.status)) {
     const inProgHistory = ticket.statusHistory?.find(h => h.status === 'IN PROGRESS');
     const inProgTime = inProgHistory?.timestamp || ticket.createdAt;
+    const actor = assigneeName || 'Assigned Technician';
     rawEntries.push({
       time: new Date(inProgTime),
-      text: 'Started work on the ticket',
+      text: withActor(actor, 'Started work on the ticket'),
       phase: 3,
       key: 'started_work'
     });
@@ -218,9 +245,10 @@ export function getActionLogEntries(
     const resolvedText = targetStatus 
       ? (targetStatus.toLowerCase() === 'repaired' ? 'Marked ticket as Repaired' : `Marked ticket as ${targetStatus}`)
       : 'Marked ticket as Resolved';
+    const actor = assigneeName || 'Assigned Technician';
     rawEntries.push({
       time: new Date(resTime),
-      text: resolvedText,
+      text: withActor(actor, resolvedText),
       phase: 5,
       key: 'resolved'
     });
@@ -230,9 +258,10 @@ export function getActionLogEntries(
   if (!hasActionInComments('closed') && ticket.status === 'CLOSED') {
     const closedHistory = ticket.statusHistory?.find(h => h.status === 'CLOSED');
     const closeTime = closedHistory?.timestamp || ticket.updatedAt;
+    const actor = assigneeName || 'Assigned Technician';
     rawEntries.push({
       time: new Date(closeTime),
-      text: 'Confirmed resolution and officially closed ticket',
+      text: withActor(actor, 'Confirmed resolution and officially closed ticket'),
       phase: 6,
       key: 'closed'
     });
@@ -362,7 +391,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     const matchedOption = RESOLUTION_OPTIONS.find(o => o.value.toLowerCase() === detectedResolution.toLowerCase());
     const effectiveStatus = existingReport?.finalStatus || (matchedOption?.value as FinalServiceStatus) || (detectedResolution as FinalServiceStatus) || 'Resolved';
 
-    const defaultLogs = getActionLogEntries(ticket, assignee?.name, effectiveStatus);
+    const defaultLogs = getActionLogEntries(ticket, assignee?.name, effectiveStatus, users, requester?.name);
     const defaultLogString = defaultLogs.map(e => `${e.timestamp} : ${e.action}`).join('\n');
 
     const defaultHead = resolvedOfficeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Custodian');
@@ -619,7 +648,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
         }
         return { timestamp: format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a'), action: line.trim() };
       })
-    : getActionLogEntries(ticket, assignee?.name, finalStatus);
+    : getActionLogEntries(ticket, assignee?.name, finalStatus, users, requester?.name);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 print:p-0 print:bg-white print:static">
@@ -918,7 +947,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                   <button
                     type="button"
                     onClick={() => {
-                      const logs = getActionLogEntries(ticket, assignee?.name, finalStatus);
+                      const logs = getActionLogEntries(ticket, assignee?.name, finalStatus, users, requester?.name);
                       setActionLogText(logs.map(e => `${e.timestamp} : ${e.action}`).join('\n'));
                     }}
                     className="text-[10px] text-accent font-bold uppercase tracking-wider hover:underline"
@@ -1171,32 +1200,38 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </div>
             </div>
 
-            {/* SECTION IV: TECHNICAL ASSESSMENT & ACTION TAKEN */}
+            {/* SECTION IV: ACTIVITY TIMELINE & ACTION LOG */}
             <div className="mb-3.5">
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
-                IV. Technical Assessment & Action Taken
+                IV. Activity Timeline & Action Log
               </div>
-              <div className="border border-black p-2.5 text-[11px] font-sans bg-white space-y-2">
-                <div>
-                  <div className="font-bold mb-1 uppercase text-[9.5px] text-gray-800">Activity Timeline & Action Log:</div>
-                  <div className="space-y-1.5">
-                    {displayedActionLog.length > 0 ? (
-                      displayedActionLog.map((item, idx) => (
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-white">
+                <div className="space-y-1.5">
+                  {displayedActionLog.length > 0 ? (
+                    displayedActionLog.map((item, idx) => {
+                      const byMatch = item.action.match(/^(by:\s*[^—\-:]+?)(?:\s*[—\-:]\s*)([\s\S]+)$/i);
+                      return (
                         <div key={idx} className="flex items-start gap-1.5 leading-snug">
                           <span className="font-mono text-[10.5px] font-bold text-gray-900 shrink-0">
                             {item.timestamp} :
                           </span>
                           <span className="font-medium text-black">
-                            {item.action}
+                            {byMatch ? (
+                              <>
+                                <strong className="font-bold text-gray-900">{byMatch[1]}</strong> — {byMatch[2]}
+                              </>
+                            ) : (
+                              item.action
+                            )}
                           </span>
                         </div>
-                      ))
-                    ) : (
-                      <div className="italic text-gray-500">
-                        {format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a')} : Service activity completed for Ticket #{ticket.ticketNumber}
-                      </div>
-                    )}
-                  </div>
+                      );
+                    })
+                  ) : (
+                    <div className="italic text-gray-500">
+                      {format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a')} : Service activity completed for Ticket #{ticket.ticketNumber}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
