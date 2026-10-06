@@ -1009,9 +1009,9 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                 />
               </div>
 
-              {/* Signatories Grid (Symmetrically aligned 2 columns) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border">
-                <div>
+              {/* Signatory */}
+              <div className="pt-4 border-t border-border">
+                <div className="max-w-md">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
                     Reviewed / Approved By (Information System Analyst)
                   </label>
@@ -1020,19 +1020,6 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                     value={ictHeadName}
                     onChange={e => setIctHeadName(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-xs font-bold text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
-                    Received / Noted By (Head of Office / Custodian)
-                  </label>
-                  <input
-                    type="text"
-                    value={officeHeadName}
-                    onChange={e => setOfficeHeadName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-xs font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm"
                     required
                   />
                 </div>
@@ -1255,23 +1242,16 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               </p>
 
               <div className="grid grid-cols-2 gap-10 sm:gap-16 max-w-xl mx-auto text-center font-sans">
-                {/* Reviewed & Approved By */}
+                {/* Empty left column */}
+                <div></div>
+
+                {/* Reviewed & Approved By (in same position of Received & Noted by) */}
                 <div className="flex flex-col justify-end text-center">
                   <div className="text-[9.5px] uppercase font-bold text-gray-700 mb-10">Reviewed & Approved by:</div>
                   <div className="border-b border-black font-black uppercase text-[11.5px] pb-0.5">
                     {ictHeadName || 'Engr. Kenneth Jones D. Alforque'}
                   </div>
                   <div className="text-[9.5px] font-bold text-gray-800 mt-0.5">Information System Analyst</div>
-                  <div className="text-[8.5px] text-gray-500 mt-0.5">Date: ____________________</div>
-                </div>
-
-                {/* Received & Noted By */}
-                <div className="flex flex-col justify-end text-center">
-                  <div className="text-[9.5px] uppercase font-bold text-gray-700 mb-10">Received & Noted by:</div>
-                  <div className="border-b border-black font-bold uppercase text-[11.5px] pb-0.5">
-                    {officeHeadName || resolvedOfficeHead || 'Head of Office / Custodian'}
-                  </div>
-                  <div className="text-[9.5px] text-gray-700 mt-0.5">Head of Office / Custodian</div>
                   <div className="text-[8.5px] text-gray-500 mt-0.5">Date: ____________________</div>
                 </div>
               </div>
