@@ -96,6 +96,15 @@ export function getActionLogEntries(
 
     const lower = clean.toLowerCase();
 
+    // Ignore admin priority update actions from activity timeline
+    if (
+      lower.includes('priority changed') ||
+      lower.includes('updated ticket priority') ||
+      lower.includes('priority to')
+    ) {
+      return { cleanText: '', phase: 0, key: 'ignore_priority' };
+    }
+
     if (lower.includes('ticket submitted') || lower.includes('logged into ict')) {
       return { cleanText: clean, phase: 1, key: 'ticket_submitted' };
     }
@@ -154,7 +163,10 @@ export function getActionLogEntries(
   if (ticket.comments && ticket.comments.length > 0) {
     ticket.comments.forEach(c => {
       if (!c.text) return;
-      if (c.text.startsWith('System: Status changed to')) return;
+      const lower = c.text.toLowerCase();
+      if (lower.startsWith('system: status changed to')) return;
+      if (lower.startsWith('system: priority changed to') || lower.includes('priority changed')) return;
+      if (lower.includes('updated ticket priority') || lower.includes('priority to')) return;
       if (c.text.startsWith('{') && c.text.endsWith('}')) return;
       
       const { cleanText, phase, key } = analyzeText(c.text);
@@ -431,6 +443,10 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
       const prefillActions = detectedActionTaken || (
         (ticket.comments || [])
           .filter(c => !c.text.startsWith('System: Status changed to') && 
+                       !c.text.startsWith('System: Priority changed to') && 
+                       !c.text.toLowerCase().includes('priority changed') && 
+                       !c.text.toLowerCase().includes('updated ticket priority') && 
+                       !c.text.toLowerCase().includes('priority to') && 
                        !c.text.startsWith('Action: Assigned ticket') && 
                        !c.text.startsWith('Action: Started work') &&
                        !c.text.startsWith('Action: Marked ticket') &&
@@ -643,13 +659,24 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
   };
 
   const displayedActionLog: ActionLogEntry[] = actionLogText.trim()
-    ? actionLogText.split('\n').filter(l => l.trim()).map(line => {
-        const parts = line.split(' : ');
-        if (parts.length >= 2) {
-          return { timestamp: parts[0].trim(), action: parts.slice(1).join(' : ').trim() };
-        }
-        return { timestamp: format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a'), action: line.trim() };
-      })
+    ? actionLogText
+        .split('\n')
+        .filter(l => {
+          const lower = l.toLowerCase();
+          return (
+            l.trim() &&
+            !lower.includes('priority changed') &&
+            !lower.includes('updated ticket priority') &&
+            !lower.includes('priority to')
+          );
+        })
+        .map(line => {
+          const parts = line.split(' : ');
+          if (parts.length >= 2) {
+            return { timestamp: parts[0].trim(), action: parts.slice(1).join(' : ').trim() };
+          }
+          return { timestamp: format(new Date(ticket.createdAt), 'MMM dd, yyyy • hh:mm a'), action: line.trim() };
+        })
     : getActionLogEntries(ticket, assignee?.name, finalStatus, users, requester?.name);
 
   return (

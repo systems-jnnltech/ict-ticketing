@@ -90,7 +90,9 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
 
   // Filter helper to exclude system status changes and hidden dispatch JSON metadata
   const isPublicDiscussionComment = (c: { text: string }) => 
-    !c.text.startsWith('System: Status changed to') && !c.text.includes('DISPATCH_INFO');
+    !c.text.startsWith('System: Status changed to') && 
+    !c.text.startsWith('System: Priority changed to') && 
+    !c.text.includes('DISPATCH_INFO');
 
   // Helper to extract specific resolution outcome (e.g. For Equipment Replacement) with semantic styling
   const getTicketResolutionMeta = (t: Ticket) => getTicketResolution(t, serviceReports);
@@ -363,11 +365,65 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
     Toast.fire({ icon: 'success', title: 'Recommendation added' });
   };
 
+  const hasIctRecommendation = Boolean(ticket?.ictRecommendation && ticket.ictRecommendation.trim());
+
+  const handleOpenResolveModal = () => {
+    if (!hasIctRecommendation) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Action / Recommendation Required',
+        html: `The ICT Technician must record an <strong>Action / Recommendation</strong> before marking this ticket as resolved.<br/><br/><span class="text-xs text-slate-500">Please record the diagnostic findings or actions taken in the ICT Action / Recommendation section.</span>`,
+        confirmButtonText: 'Add Action / Recommendation Now',
+        confirmButtonColor: '#f97316',
+        showCancelButton: true,
+        cancelButtonText: 'Cancel',
+        cancelButtonColor: '#64748b',
+        customClass: { popup: 'rounded-2xl', title: 'font-bold' }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          setIsEditingRecommendation(true);
+          const el = document.getElementById('ict-recommendation-section');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => {
+              const textarea = el.querySelector('textarea');
+              if (textarea) textarea.focus();
+            }, 300);
+          }
+        }
+      });
+      return;
+    }
+    setShowResolveModal(true);
+  };
+
   const handleConfirmResolve = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!ticket) return;
+
+    if (!hasIctRecommendation && !resolveActionTaken.trim()) {
+      Toast.fire({ 
+        icon: 'warning', 
+        title: 'Action / Recommendation is required before resolving the ticket' 
+      });
+      return;
+    }
+
     setIsResolving(true);
     try {
+      // Auto-populate ICT Recommendation from resolve modal action taken if not previously recorded
+      if (!hasIctRecommendation && resolveActionTaken.trim()) {
+        const existing = ticket.ictRecommendation || '';
+        const occurrences = (existing.match(/Taken \d+:/g) || []).length;
+        const nextNum = occurrences + 1;
+        const timestampStr = format(new Date(), 'MMM d, yyyy h:mm a');
+        const roleName = currentUser?.role === 'Admin' ? 'ICT Head' : 'ICT Support';
+        const header = `Taken ${nextNum}: ${timestampStr} by: ${roleName} (${currentUser?.name || 'Unknown'})`;
+        const newEntry = `${header}\n${resolveActionTaken.trim()}`;
+        const combined = existing ? `${existing}\n\n${newEntry}` : newEntry;
+        updateRecommendation(ticket.id, combined);
+      }
+
       changeTicketStatus(ticket.id, 'RESOLVED', ticket.assignedToId);
       
       const resLabel = selectedResolution.toLowerCase() === 'repaired'
@@ -480,13 +536,20 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
             (currentUser?.role === 'ICT Support' && ticket.assignedToId === currentUser.id && ['IN PROGRESS', 'RESOLVED', 'CLOSED', 'ESCALATED', 'REFERRED'].includes(ticket.status)) ||
             (currentUser?.role === 'Admin' && ['ESCALATED', 'REFERRED'].includes(ticket.status))
           ) && (
-              <div className="bg-surface rounded-2xl shadow-sm border border-orange-500/30 overflow-hidden relative">
+              <div id="ict-recommendation-section" className="bg-surface rounded-2xl shadow-sm border border-orange-500/30 overflow-hidden relative">
                   <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
                   <div className="px-6 py-5 border-b border-orange-500/20 bg-orange-500/5 flex justify-between items-center pl-8">
-                      <h3 className="text-[11px] font-bold text-orange-500 uppercase tracking-widest flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4" />
-                        ICT Action / Recommendation
-                      </h3>
+                      <div className="flex items-center gap-2.5">
+                        <h3 className="text-[11px] font-bold text-orange-500 uppercase tracking-widest flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          ICT Action / Recommendation
+                        </h3>
+                        {ticket.status === 'IN PROGRESS' && !hasIctRecommendation && (
+                          <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-600 border border-orange-500/20 animate-pulse">
+                            Required before resolving
+                          </span>
+                        )}
+                      </div>
                       {canAddRecommendation && !isEditingRecommendation && (
                           <button 
                               onClick={() => {
@@ -502,7 +565,14 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                   <div className="p-8 pl-9">
                       <div className="mb-6">
                           <p className="text-sm font-medium text-ink whitespace-pre-wrap leading-relaxed max-w-4xl">
-                              {ticket.ictRecommendation ? ticket.ictRecommendation : <span className="text-orange-500/60 italic">No action or recommendation recorded yet.</span>}
+                              {ticket.ictRecommendation ? (
+                                ticket.ictRecommendation
+                              ) : (
+                                <span className="text-orange-500/90 font-medium italic flex items-center gap-1.5">
+                                  <AlertCircle className="w-4 h-4 text-orange-500 shrink-0" />
+                                  No action or recommendation recorded yet. An Action / Recommendation must be added before this ticket can be resolved or closed.
+                                </span>
+                              )}
                           </p>
                       </div>
                       
@@ -1132,6 +1202,25 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                         <button 
                                             onClick={async () => {
                                                 if (ticket.status === 'REFERRED') {
+                                                    if (!hasIctRecommendation) {
+                                                        Swal.fire({
+                                                            icon: 'warning',
+                                                            title: 'Action / Recommendation Required',
+                                                            html: `Please record an <strong>Action / Recommendation</strong> before closing this ticket.`,
+                                                            confirmButtonText: 'Add Action / Recommendation Now',
+                                                            confirmButtonColor: '#f97316',
+                                                            showCancelButton: true,
+                                                            cancelButtonText: 'Cancel',
+                                                            cancelButtonColor: '#64748b',
+                                                            customClass: { popup: 'rounded-2xl', title: 'font-bold' }
+                                                        }).then((res) => {
+                                                            if (res.isConfirmed) {
+                                                                setIsEditingRecommendation(true);
+                                                                document.getElementById('ict-recommendation-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                            }
+                                                        });
+                                                        return;
+                                                    }
                                                     const confirmResult = await Swal.fire({
                                                         title: 'Mark Ticket Resolved & Close?',
                                                         text: 'The external repair has been completed. This will permanently close the ticket. The Department will not need to confirm this resolution.',
@@ -1149,7 +1238,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                                         Toast.fire({ icon: 'success', title: 'Ticket Closed' });
                                                     }
                                                 } else {
-                                                    setShowResolveModal(true);
+                                                    handleOpenResolveModal();
                                                 }
                                             }}
                                             className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
@@ -1226,12 +1315,21 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                     {currentUser?.role === 'ICT Support' && ticket.assignedToId === currentUser.id && ticket.status !== 'CLOSED' && (
                         <div className="flex flex-col gap-3">
                             {ticket.status === 'ASSIGNED' && (
-                                <button onClick={() => handleStatusUpdate('IN PROGRESS', 'Started work on the ticket')} className="w-full px-5 py-3.5 bg-accent text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all active:scale-95">
+                                <button 
+                                    onClick={() => {
+                                        handleStatusUpdate('IN PROGRESS', 'Started work on the ticket');
+                                        setIsEditingRecommendation(true);
+                                    }} 
+                                    className="w-full px-5 py-3.5 bg-accent text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all active:scale-95 cursor-pointer"
+                                >
                                     Start Work
                                 </button>
                             )}
                             {ticket.status === 'IN PROGRESS' && (
-                                <button onClick={() => setShowResolveModal(true)} className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer">
+                                <button 
+                                    onClick={handleOpenResolveModal} 
+                                    className="w-full px-5 py-3.5 bg-green-500 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:opacity-90 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                                >
                                     <CheckCircle2 className="w-4 h-4"/> Mark Resolved
                                 </button>
                             )}
@@ -1241,6 +1339,25 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                                         External Technician Details
                                     </button>
                                     <button onClick={async () => {
+                                        if (!hasIctRecommendation) {
+                                            Swal.fire({
+                                                icon: 'warning',
+                                                title: 'Action / Recommendation Required',
+                                                html: `Please record an <strong>Action / Recommendation</strong> before marking this ticket as resolved and closed.`,
+                                                confirmButtonText: 'Add Action / Recommendation Now',
+                                                confirmButtonColor: '#f97316',
+                                                showCancelButton: true,
+                                                cancelButtonText: 'Cancel',
+                                                cancelButtonColor: '#64748b',
+                                                customClass: { popup: 'rounded-2xl', title: 'font-bold' }
+                                            }).then((res) => {
+                                                if (res.isConfirmed) {
+                                                    setIsEditingRecommendation(true);
+                                                    document.getElementById('ict-recommendation-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                }
+                                            });
+                                            return;
+                                        }
                                         const confirmResult = await Swal.fire({
                                             title: 'Mark Ticket Resolved & Close?',
                                             text: 'The external repair has been completed. This will permanently close the ticket. The Department will not need to confirm this resolution.',
@@ -1767,8 +1884,13 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
               })()}
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1.5">
-                  Action Taken / Troubleshooting Details
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1.5 flex items-center justify-between">
+                  <span>Action Taken / Troubleshooting Details</span>
+                  {!hasIctRecommendation && (
+                    <span className="text-orange-500 font-bold normal-case text-[10px]">
+                      * Required (None recorded yet)
+                    </span>
+                  )}
                 </label>
                 <textarea
                   rows={3}
@@ -1776,6 +1898,7 @@ export function TicketDetail({ ticketId, onBack }: { ticketId: string, onBack: (
                   onChange={(e) => setResolveActionTaken(e.target.value)}
                   placeholder="Detail the troubleshooting conducted, parts tested or replaced, configuration changes..."
                   className="w-full p-3.5 bg-bg border border-border rounded-xl text-xs font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm resize-none"
+                  required={!hasIctRecommendation}
                 />
                 <p className="text-[10px] text-ink-muted mt-1 italic">
                   This action taken will be automatically recorded in the activity log and prefilled into Section IV & V of the ICT Technical Service Report.
