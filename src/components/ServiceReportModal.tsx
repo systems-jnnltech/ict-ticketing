@@ -394,11 +394,13 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
     const defaultLogs = getActionLogEntries(ticket, assignee?.name, effectiveStatus, users, requester?.name);
     const defaultLogString = defaultLogs.map(e => `${e.timestamp} : ${e.action}`).join('\n');
 
-    const defaultHead = resolvedOfficeHead || (department?.name ? `${department.name} - Head of Office` : 'Head of Office / Custodian');
+    const defaultHead = resolvedOfficeHead || department?.officeHead || '';
     const isPlaceholderHead = (name?: string) => 
       !name || 
       name.includes('Authorized Representative') || 
-      name.includes('Authorized Office Representative');
+      name.includes('Authorized Office Representative') ||
+      name.includes('- Head of Office') ||
+      name.includes('Head of Office / Custodian');
 
     if (existingReport) {
       setReportNumber(existingReport.reportNumber);
@@ -498,7 +500,7 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
           preparedByName: currentUser?.name || 'ICT Support',
           preparedById: currentUser?.id,
           ictHeadName: ictHeadName || 'Engr. Kenneth Jones D. Alforque',
-          officeHeadName: officeHeadName || 'Head of Office / Authorized Representative',
+          officeHeadName: officeHeadName || defaultHead || '',
           reportStatus: reportStatus || 'Generated'
         });
       }
@@ -866,6 +868,18 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                     <Building className="w-3.5 h-3.5" /> Requesting Office
                   </h4>
                   <div className="text-xs font-bold text-ink">{department?.name || 'Municipal Office'}</div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink-muted block mb-1">
+                      Department / Section Head
+                    </label>
+                    <input
+                      type="text"
+                      value={officeHeadName}
+                      onChange={e => setOfficeHeadName(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-bg border border-border rounded-lg text-xs font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 shadow-sm"
+                      placeholder="e.g. Department / Section Head"
+                    />
+                  </div>
                   <div className="text-xs text-ink-muted">
                     End-User / Requester: <span className="text-ink font-medium">{requester?.name || 'Staff Member'}</span>
                   </div>
@@ -1128,12 +1142,12 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
                     <td className="w-2/3 p-2 font-semibold uppercase">{department?.name || 'N/A'}</td>
                   </tr>
                   <tr className="border-b border-black">
-                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Date & Time Requested:</td>
-                    <td className="p-2">{format(new Date(ticket.createdAt), 'MMMM dd, yyyy • hh:mm a')}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Department/Section Head:</td>
+                    <td className="p-2 font-semibold">{officeHeadName || resolvedOfficeHead || department?.officeHead || 'N/A'}</td>
                   </tr>
                   <tr>
-                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Issue Category:</td>
-                    <td className="p-2 font-semibold">{category?.name || 'Hardware'}</td>
+                    <td className="p-2 bg-gray-100 font-bold border-r border-black">Date & Time Requested:</td>
+                    <td className="p-2">{format(new Date(ticket.createdAt), 'MMMM dd, yyyy • hh:mm a')}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1181,9 +1195,15 @@ export function ServiceReportModal({ ticket, isOpen, onClose, existingReportId }
               <div className="bg-black text-white text-[9.5px] font-sans font-bold uppercase tracking-wider px-2 py-0.5 mb-0.5 print:bg-black print:text-white">
                 III. Reported Issue
               </div>
-              <div className="border border-black p-2.5 text-[11px] font-sans bg-white">
-                <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">Subject / Symptom:</div>
-                <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{diagnosis || ticket.subject}</p>
+              <div className="border border-black p-2.5 text-[11px] font-sans bg-white space-y-1.5">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-bold text-[9.5px] uppercase text-gray-800">Issue Category:</span>
+                  <span className="font-semibold text-black">{category?.name || 'Hardware'}</span>
+                </div>
+                <div>
+                  <div className="font-bold mb-0.5 uppercase text-[9.5px] text-gray-800">Subject / Symptom:</div>
+                  <p className="whitespace-pre-wrap leading-relaxed text-black font-semibold">{diagnosis || ticket.subject}</p>
+                </div>
               </div>
             </div>
 
