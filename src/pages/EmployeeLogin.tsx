@@ -131,7 +131,7 @@ export function EmployeeLogin() {
                 Continue with Google
               </button>
               <p className="mt-4 text-xs text-center text-ink-muted">
-                Only @malungon.gov.ph accounts are allowed.
+                Official @malungon.gov.ph or ICT-authorized office accounts are allowed.
               </p>
             </div>
 
