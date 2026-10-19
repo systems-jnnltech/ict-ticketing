@@ -96,7 +96,7 @@ export let mockOffices: Office[] = [
   { id: 'off_22', name: 'Mayor\'s Office - Executive Section', officeHead: 'Cristina Constantino-La Paz', acronym: 'MO-Exec', email: '' },
   { id: 'off_23', name: 'Mayor\'s Office - PESO', officeHead: 'Cristina Constantino-La Paz', acronym: 'MO-PESO', email: 'peso@malungon.gov.ph' },
   { id: 'off_24', name: 'Mayors Office - Personnel Section', officeHead: 'John Michael Fernandez', acronym: 'MO-Personnel', email: 'hr@malungon.gov.ph' },
-  { id: 'off_25', name: 'Mayor\'s Office - Sports and Youth Hall Section', officeHead: 'Pronie Lukeña', acronym: 'MO-Sports', email: '' },
+  { id: 'off_25', name: 'Mayor\'s Office - Sports and Youth Hall Section', officeHead: 'Pronie Lukeña', acronym: 'MO-Sports', email: 'lubatonaganmarygrace@gmail.com' },
   { id: 'off_26', name: 'Municipal Planning & Development Office', officeHead: 'Richard Saranillo', acronym: 'MPDO', email: 'planning@malungon.gov.ph' },
   { id: 'off_27', name: 'Municipal Social Welfare & Development Office', officeHead: 'Ruth Arangote', acronym: 'MSWDO', email: 'mswdo@malungon.gov.ph' },
   { id: 'off_28', name: 'Municipal Treasurer\'s Office', officeHead: 'Leo Operario', acronym: 'MTO', email: 'treasurer@malungon.gov.ph' },

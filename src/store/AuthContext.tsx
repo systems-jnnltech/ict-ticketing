@@ -6,6 +6,16 @@ import { mockUsers } from './mockData';
 
 export type Role = 'system_admin' | 'ict_support' | 'employee';
 
+// Explicitly approved non-@malungon.gov.ph office accounts mapped to department IDs
+export const SPECIAL_OFFICE_ACCOUNTS: Record<string, string> = {
+  'lubatonaganmarygrace@gmail.com': 'a0000000-0000-0000-0000-000000000019', // Mayor's Office - Sports and Youth Hall Section
+};
+
+export const isAllowedOfficeEmail = (email: string): boolean => {
+  const normalized = email.toLowerCase().trim();
+  return normalized.endsWith('@malungon.gov.ph') || Boolean(SPECIAL_OFFICE_ACCOUNTS[normalized]);
+};
+
 export interface Profile {
   id: string;
   email: string;
@@ -67,9 +77,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const fetchProfile = async (currentUser: SupabaseUser) => {
     try {
-      const userEmail = currentUser.email?.toLowerCase() || '';
+      const userEmail = currentUser.email?.toLowerCase().trim() || '';
       const isMalungonDomain = userEmail.endsWith('@malungon.gov.ph');
       const isGmail = userEmail.endsWith('@gmail.com');
+      const isSpecialOfficeAccount = Boolean(SPECIAL_OFFICE_ACCOUNTS[userEmail]);
+      const isAuthorizedOfficeEmail = isAllowedOfficeEmail(userEmail);
 
       // 1. Fetch existing profile
       const { data, error } = await supabase
@@ -80,15 +92,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // CASE A: User already has a profile
       if (data) {
-        // RULE: Office / Department employees CANNOT use personal Gmail accounts
-        if (data.role === 'employee' && !isMalungonDomain) {
-          toast.error('Office accounts must use an official @malungon.gov.ph email. Personal Gmail accounts are not permitted.');
+        // RULE: Office / Department employees CANNOT use personal Gmail accounts unless authorized
+        if (data.role === 'employee' && !isAuthorizedOfficeEmail) {
+          toast.error('Office accounts must use an official @malungon.gov.ph email or an ICT-authorized office account. Personal Gmail accounts are not permitted.');
           await supabase.auth.signOut();
           setUser(null);
           setSession(null);
           setProfile(null);
           setLoading(false);
           return;
+        }
+
+        // If this is a special office account but department_id is missing or out of sync, update it
+        if (isSpecialOfficeAccount && (!data.department_id || data.department_id !== SPECIAL_OFFICE_ACCOUNTS[userEmail])) {
+          const targetDeptId = SPECIAL_OFFICE_ACCOUNTS[userEmail];
+          await supabase
+            .from('profiles')
+            .update({ department_id: targetDeptId })
+            .eq('id', currentUser.id);
+          data.department_id = targetDeptId;
         }
 
         // Ensure primary system admin role
@@ -124,8 +146,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             assignedRole = 'system_admin';
           }
 
-          // Auto-link department if email matches an official office email
-          if (!assignedDept && isMalungonDomain) {
+          // Auto-link department for registered special office accounts
+          if (!assignedDept && isSpecialOfficeAccount) {
+            assignedDept = SPECIAL_OFFICE_ACCOUNTS[userEmail];
+            assignedRole = 'employee';
+          }
+
+          // Auto-link department if email matches an official office email in departments table
+          if (!assignedDept && isAuthorizedOfficeEmail) {
             const { data: deptMatch } = await supabase
               .from('departments')
               .select('id')
@@ -136,9 +164,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
 
-          // RULE 1: Office / Employee accounts MUST use @malungon.gov.ph
-          if (assignedRole === 'employee' && !isMalungonDomain) {
-            toast.error('Office accounts must use an official @malungon.gov.ph email. Personal Gmail accounts are not permitted.');
+          // RULE 1: Office / Employee accounts MUST use @malungon.gov.ph or be an authorized office exception
+          if (assignedRole === 'employee' && !isAuthorizedOfficeEmail) {
+            toast.error('Office accounts must use an official @malungon.gov.ph email or an ICT-authorized office account. Personal Gmail accounts are not permitted.');
             await supabase.auth.signOut();
             setUser(null);
             setSession(null);
@@ -147,9 +175,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          // RULE 2: Gmail is ONLY permitted if pre-assigned as ICT Support
-          if (isGmail && assignedRole !== 'ict_support' && assignedRole !== 'system_admin') {
-            toast.error('This Gmail account is not recognized as authorized ICT Support. Please contact the administrator.');
+          // RULE 2: Gmail is ONLY permitted if pre-assigned as ICT Support/Admin OR an authorized office exception
+          if (isGmail && assignedRole !== 'ict_support' && assignedRole !== 'system_admin' && !isSpecialOfficeAccount) {
+            toast.error('This Gmail account is not recognized as authorized ICT Support or an authorized office account. Please contact the administrator.');
             await supabase.auth.signOut();
             setUser(null);
             setSession(null);
