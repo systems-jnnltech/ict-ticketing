@@ -129,6 +129,7 @@ export function AdminUsers() {
                     onChange={(e) => setFormData({...formData, role: e.target.value as Role})}
                     className="w-full bg-bg border border-border rounded-xl pl-11 pr-4 py-2.5 text-sm font-medium text-ink outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent appearance-none transition-all cursor-pointer"
                   >
+                    <option value="employee">Department User (Office Staff)</option>
                     <option value="ict_support">ICT Support</option>
                     <option value="system_admin">System Admin</option>
                   </select>
