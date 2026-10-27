@@ -13,11 +13,41 @@ export function CreateTicket({ onBack }: { onBack: () => void }) {
 
   // Only show assets assigned to this user's office
   const officeAssets = assets.filter(a => a.officeId === currentUser?.officeId);
+  const selectedAsset = officeAssets.find(a => a.id === assetId);
+
+  const formatAssetOption = (a: any) => {
+    const brandModel = [a.brand, a.model].filter(Boolean).map((s: string) => s.trim()).filter(Boolean).join(' ');
+    const cleanSerial = a.serialNumber ? a.serialNumber.replace(/^(sn\s*:?\s*)+/i, '').trim() : '';
+    const idPart = a.propertyNumber || (cleanSerial ? `SN: ${cleanSerial}` : a.assetCode || '');
+    const userPart = a.assignedTo && a.assignedTo !== 'N/A' && a.assignedTo.trim()
+      ? `User: ${a.assignedTo.trim()}`
+      : '';
+
+    let label = a.equipmentType;
+    if (brandModel) {
+      label += ` — ${brandModel}`;
+    }
+    if (idPart) {
+      label += ` (${idPart})`;
+    }
+    if (userPart) {
+      label += ` — ${userPart}`;
+    }
+    return label;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
     
+    if (officeAssets.length > 0 && !assetId) {
+      Toast.fire({
+        icon: 'warning',
+        title: 'Please select the affected asset'
+      });
+      return;
+    }
+
     const result = await ConfirmModal.fire({
       text: 'Are you sure you want to submit this ticket?'
     });
@@ -88,20 +118,48 @@ export function CreateTicket({ onBack }: { onBack: () => void }) {
           </div>
 
           <div className="space-y-2">
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-ink-muted">Affected Asset (Optional)</label>
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-ink-muted">
+              Affected Asset {officeAssets.length > 0 ? <span className="text-accent ml-1.5">*</span> : <span className="text-ink-muted font-normal lowercase">(optional)</span>}
+            </label>
             <select 
+              required={officeAssets.length > 0}
               value={assetId}
               onChange={e => setAssetId(e.target.value)}
               className={`${inputClass} appearance-none cursor-pointer`}
             >
-              <option value="">-- Select an Asset --</option>
+              <option value="">-- Select an Asset {officeAssets.length > 0 ? '*' : ''} --</option>
               {officeAssets.map(a => (
                 <option key={a.id} value={a.id}>
-                  {a.equipmentType} {a.propertyNumber ? `(${a.propertyNumber})` : a.serialNumber ? `(SN: ${a.serialNumber})` : ''}
+                  {formatAssetOption(a)}
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-ink-muted mt-1.5 font-medium">Select the specific equipment if applicable.</p>
+            {selectedAsset && (
+              <div className="p-3.5 bg-bg/70 border border-border rounded-xl text-xs space-y-1.5 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-bold text-ink">
+                    {selectedAsset.equipmentType} {selectedAsset.brand ? `• ${selectedAsset.brand}` : ''} {selectedAsset.model || ''}
+                  </span>
+                  <span className="font-mono text-[10px] text-accent font-bold px-2 py-0.5 rounded bg-accent/10 border border-accent/20">
+                    {selectedAsset.propertyNumber || (selectedAsset.serialNumber ? `SN: ${selectedAsset.serialNumber}` : selectedAsset.assetCode)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-ink-muted flex flex-wrap gap-x-4 gap-y-1">
+                  {selectedAsset.assignedTo && selectedAsset.assignedTo !== 'N/A' && (
+                    <span>Assigned to: <strong className="text-ink">{selectedAsset.assignedTo}</strong></span>
+                  )}
+                  {selectedAsset.exactLocation && (
+                    <span>Location: <strong className="text-ink">{selectedAsset.exactLocation}</strong></span>
+                  )}
+                  {selectedAsset.condition && (
+                    <span>Condition: <strong className="text-ink">{selectedAsset.condition}</strong></span>
+                  )}
+                </div>
+              </div>
+            )}
+            <p className="text-[11px] text-ink-muted mt-1.5 font-medium">
+              Select the specific equipment that requires technical assistance or repair.
+            </p>
           </div>
 
           <div className="space-y-2">
